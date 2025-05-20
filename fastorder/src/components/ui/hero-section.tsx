@@ -12,7 +12,9 @@ import MenuManagement from "@/components/ui/menumenage"
 import RevenueInsight from "@/components/ui/revenueside"
 import Customerview from "@/components/ui/customerview"
 
+
 export function HeroSection() {
+  
   return (
     <>
       <HeroHeader />

@@ -380,10 +380,6 @@ export default function DashboardPage() {
       <div className="bg-gray-100 p-4 rounded-full mb-4">{icon}</div>
       <h3 className="text-lg font-medium text-gray-900 mb-2">{title}</h3>
       <p className="text-sm text-gray-500 max-w-md mb-6">{description}</p>
-      <button className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center">
-        <Plus className="h-4 w-4 mr-2" />
-        เพิ่มข้อมูล
-      </button>
     </div>
   )
 
@@ -488,10 +484,7 @@ export default function DashboardPage() {
               <div className="lg:col-span-2 bg-white p-4 md:p-6 rounded-xl shadow-sm border border-gray-100">
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6">
                   <h3 className="font-bold mb-2 sm:mb-0">รายได้</h3>
-                  <div className="flex items-center space-x-2">
-                    <button className="text-xs md:text-sm px-3 py-1 bg-blue-50 text-blue-600 rounded-md">7 วัน</button>
-                    <button className="text-xs md:text-sm px-3 py-1 text-gray-500 rounded-md">30 วัน</button>
-                  </div>
+              
                 </div>
                 {weeklyRevenue.length > 0 ? (
                   <RevenueChart data={weeklyRevenue} />
@@ -588,8 +581,7 @@ export default function DashboardPage() {
                 <h2 className="text-lg md:text-xl font-bold mb-4 md:mb-0">สรุปรายได้</h2>
                 <div className="flex flex-wrap items-center gap-2">
                   <button className="px-3 py-1.5 bg-blue-600 text-white text-xs md:text-sm rounded-md">วันนี้</button>
-                  <button className="px-3 py-1.5 text-gray-600 text-xs md:text-sm rounded-md">7 วัน</button>
-                  <button className="px-3 py-1.5 text-gray-600 text-xs md:text-sm rounded-md">30 วัน</button>
+                
                   <div className="relative">
                     <input
                       type="date"
@@ -630,36 +622,12 @@ export default function DashboardPage() {
                 )}
               </div>
 
-              <div>
-                <h3 className="font-bold mb-4">รายได้ตามประเภทเมนู</h3>
-                {renderEmptyState(
-                  "ยังไม่มีข้อมูลรายได้ตามประเภทเมนู",
-                  "เพิ่มเมนูและเริ่มรับออเดอร์เพื่อดูข้อมูลรายได้ตามประเภทเมนู",
-                  <Utensils className="h-8 w-8 text-gray-400" />,
-                )}
-              </div>
+             
             </div>
           </div>
         )
 
-      case "tables":
-        return (
-          <div className="space-y-6">
-            <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-gray-100">
-              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6">
-                <h2 className="text-lg md:text-xl font-bold mb-2 sm:mb-0">จัดการโต๊ะ</h2>
-                <button className="px-3 py-1.5 bg-blue-600 text-white text-xs md:text-sm rounded-md flex items-center">
-                  <Plus className="h-4 w-4 mr-1" /> เพิ่มโต๊ะใหม่
-                </button>
-              </div>
-              {renderEmptyState(
-                "ยังไม่มีโต๊ะ",
-                "เพิ่มโต๊ะเพื่อจัดการที่นั่งและการสั่งอาหารของลูกค้า",
-                <Users className="h-8 w-8 text-gray-400" />,
-              )}
-            </div>
-          </div>
-        )
+      
       case "menu":
         return <MenuManagement />
       default:
@@ -678,10 +646,6 @@ export default function DashboardPage() {
         return "ออเดอร์"
       case "revenue":
         return "รายได้"
-      case "recommended":
-        return "เมนูแนะนำ"
-      case "tables":
-        return "จัดการโต๊ะ"
       case "menu":
         return "จัดการเมนู"
       default:
@@ -796,18 +760,6 @@ export default function DashboardPage() {
             >
               <Utensils className="h-5 w-5 mr-3" />
               <span>เมนู</span>
-            </button>
-            <button
-              className={`w-full flex items-center px-3 py-2 rounded-md ${
-                activeTab === "tables" ? "bg-blue-50 text-blue-700" : "text-gray-700 hover:bg-gray-100"
-              }`}
-              onClick={() => {
-                setActiveTab("tables")
-                setSidebarOpen(false)
-              }}
-            >
-              <Users className="h-5 w-5 mr-3" />
-              <span>โต๊ะ</span>
             </button>
             <button
               className={`w-full flex items-center px-3 py-2 rounded-md ${

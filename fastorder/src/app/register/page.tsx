@@ -23,7 +23,20 @@ export default function RegisterPage() {
 
   const router = useRouter()
 
-  
+   const redirectBasedOnUserData = (userData: any) => {
+    const isPaid = userData.isPaid || false
+    const storeInfoComplete = userData.storeInfoComplete || false
+
+    setTimeout(() => {
+      if (!storeInfoComplete) {
+        router.push("/setup")
+      } else if (isPaid) {
+        router.push("/dashboard")
+      } else {
+        router.push("/pricing")
+      }
+    }, 1500)
+  }
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -48,7 +61,7 @@ export default function RegisterPage() {
 
       // Redirect to pricing page after successful registration
       setTimeout(() => {
-        router.push("/pricing")
+        router.push("/setup")
       }, 1500)
     } catch (err: any) {
       let errorMessage = "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง"
