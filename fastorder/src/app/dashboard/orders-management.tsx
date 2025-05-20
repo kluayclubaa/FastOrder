@@ -29,74 +29,79 @@ export default function OrdersManagement() {
   // Check authentication state
 // ตั้ง listener ใหม่ทุกครั้งที่ statusFilter หรือ userId เปลี่ยน
 useEffect(() => {
-  if (!userId) return
+  const unsubscribe = onAuthStateChanged(auth, (user) => {
+    if (user) {
+      setUserId(user.uid) // 👍 ตั้งค่าครั้งเดียว
+    } else {
+      router.push("/login")
+    }
+  })
 
-  const unsubscribe = setupRealTimeOrdersListener(userId)
+  return () => unsubscribe()
+}, [router])
 
-  return () => {
-    if (unsubscribe) unsubscribe()
+
+  useEffect(() => {
+  if (userId) {
+    const unsubscribe = setupRealTimeOrdersListener(userId)
+    return () => unsubscribe && unsubscribe()
   }
-}, [statusFilter, userId])
+}, [statusFilter, userId]) // 🔁 เรียกใหม่เมื่อ statusFilter หรือ userId เปลี่ยน
+
 
 
 
   // Set up real-time listener for orders
   const setupRealTimeOrdersListener = (uid: string) => {
-    try {
-      setLoading(true)
+  try {
+    setLoading(true)
 
-      // Get today's date at midnight
-      const today = new Date()
-      today.setHours(0, 0, 0, 0)
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
 
-      // Base query with date filter to only show today's orders
-      let ordersQuery
-
-      // Create query based on status filter
-      if (statusFilter !== "all") {
-        ordersQuery = query(
-          collection(db, "users", uid, "orders"),
-          where("status", "==", statusFilter),
-          where("createdAt", ">=", today),
-          orderBy("createdAt", "desc"),
-        )
-      } else {
-        ordersQuery = query(
-          collection(db, "users", uid, "orders"),
-          where("createdAt", ">=", today),
-          orderBy("createdAt", "desc"),
-        )
-      }
-
-      // Set up real-time listener
-      const unsubscribe = onSnapshot(
-        ordersQuery,
-        (querySnapshot) => {
-          const ordersList: Order[] = []
-
-          querySnapshot.forEach((doc) => {
-            const data = doc.data() as Omit<Order, "id">
-            ordersList.push({ id: doc.id, ...data })
-          })
-
-          setOrders(ordersList)
-          setLoading(false)
-        },
-        (error) => {
-          console.error("Error in orders real-time listener:", error)
-          showNotification("ไม่สามารถโหลดข้อมูลออเดอร์ได้", "error")
-          setLoading(false)
-        },
+    let ordersQuery
+    if (statusFilter !== "all") {
+      ordersQuery = query(
+        collection(db, "users", uid, "orders"),
+        where("status", "==", statusFilter),
+        where("createdAt", ">=", today),
+        orderBy("createdAt", "desc"),
       )
-
-      return unsubscribe
-    } catch (error) {
-      console.error("Error setting up orders listener:", error)
-      showNotification("ไม่สามารถโหลดข้อมูลออเดอร์ได้", "error")
-      setLoading(false)
-      return () => {}
+    } else {
+      ordersQuery = query(
+        collection(db, "users", uid, "orders"),
+        where("createdAt", ">=", today),
+        orderBy("createdAt", "desc"),
+      )
     }
+
+    const unsubscribe = onSnapshot(
+      ordersQuery,
+      (querySnapshot) => {
+        const ordersList: Order[] = []
+        querySnapshot.forEach((doc) => {
+          const data = doc.data() as Omit<Order, "id">
+          ordersList.push({ id: doc.id, ...data })
+        })
+        setOrders(ordersList)
+        setLoading(false)
+      },
+      (error) => {
+        console.error("Error in orders real-time listener:", error)
+        showNotification("ไม่สามารถโหลดข้อมูลออเดอร์ได้", "error")
+        setLoading(false)
+      }
+    )
+
+    return unsubscribe
+  } catch (error) {
+    console.error("Error setting up orders listener:", error)
+    showNotification("ไม่สามารถโหลดข้อมูลออเดอร์ได้", "error")
+    setLoading(false)
+    return () => {}
   }
+}
+
 
   // Update order status
   const updateOrderStatus = async (orderId: string, newStatus: string) => {

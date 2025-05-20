@@ -38,6 +38,8 @@ import {
   onSnapshot,
   getDocs,
   orderBy,
+  getDoc
+  
 } from "firebase/firestore"
 import { onAuthStateChanged, signOut } from "firebase/auth"
 import MenuManagement from "./menu-management"
@@ -72,18 +74,33 @@ export default function DashboardPage() {
 
   // Check authentication state
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      if (currentUser) {
-        setUser(currentUser)
-        fetchUserProfile(currentUser.uid)
-        setupRealTimeListeners(currentUser.uid)
-      } else {
-        router.push("/login")
-      }
-    })
+  const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+    if (currentUser) {
+      const userDocRef = doc(db, "users", currentUser.uid)
+      const userSnap = await getDoc(userDocRef)
 
-    return () => unsubscribe()
-  }, [router])
+      if (!userSnap.exists()) {
+        router.push("/setup") // หรือ path ที่เหมาะสม
+        return
+      }
+
+      const userData = userSnap.data()
+      if (!userData.isPaid) {
+        router.push("/pricing") // หรือหน้าแจ้งเตือนให้จ่ายเงิน
+        return
+      }
+
+      setUser(currentUser)
+      fetchUserProfile(currentUser.uid)
+      setupRealTimeListeners(currentUser.uid)
+    } else {
+      router.push("/login")
+    }
+  })
+
+  return () => unsubscribe()
+}, [router])
+
 
   // Setup real-time listeners for various data
   const setupRealTimeListeners = (userId: string) => {
