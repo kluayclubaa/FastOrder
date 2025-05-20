@@ -1,18 +1,9 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { FileText, Check, Clock, X, TrendingUp, Filter, Search, RefreshCw } from "lucide-react"
+import { FileText, Check, X, TrendingUp, Filter, Search, RefreshCw } from "lucide-react"
 import { auth, db } from "@/lib/firebase"
-import {
-  collection,
-  query,
-  where,
-  orderBy,
-  onSnapshot,
-  updateDoc,
-  doc,
-  serverTimestamp,
-} from "firebase/firestore"
+import { collection, query, where, orderBy, onSnapshot, updateDoc, doc, serverTimestamp } from "firebase/firestore"
 import { onAuthStateChanged } from "firebase/auth"
 import { useRouter } from "next/navigation"
 
@@ -36,61 +27,67 @@ export default function OrdersManagement() {
   const router = useRouter()
 
   // Check authentication state
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      if (user) {
-        setUserId(user.uid)
-        setupRealTimeOrdersListener(user.uid)
-      } else {
-        router.push("/login")
-      }
-    })
+// ตั้ง listener ใหม่ทุกครั้งที่ statusFilter หรือ userId เปลี่ยน
+useEffect(() => {
+  if (!userId) return
 
-    return () => unsubscribe()
-  }, [router])
+  const unsubscribe = setupRealTimeOrdersListener(userId)
+
+  return () => {
+    if (unsubscribe) unsubscribe()
+  }
+}, [statusFilter, userId])
+
+
 
   // Set up real-time listener for orders
   const setupRealTimeOrdersListener = (uid: string) => {
     try {
       setLoading(true)
-      
+
       // Get today's date at midnight
       const today = new Date()
       today.setHours(0, 0, 0, 0)
-      
+
       // Base query with date filter to only show today's orders
-      let ordersQuery = query(
-        collection(db, "users", uid, "orders"),
-        where("createdAt", ">=", today),
-        orderBy("createdAt", "desc")
-      )
-      
-      // Add status filter if not showing all orders
+      let ordersQuery
+
+      // Create query based on status filter
       if (statusFilter !== "all") {
         ordersQuery = query(
           collection(db, "users", uid, "orders"),
-          where("createdAt", ">=", today),
           where("status", "==", statusFilter),
-          orderBy("createdAt", "desc")
+          where("createdAt", ">=", today),
+          orderBy("createdAt", "desc"),
+        )
+      } else {
+        ordersQuery = query(
+          collection(db, "users", uid, "orders"),
+          where("createdAt", ">=", today),
+          orderBy("createdAt", "desc"),
         )
       }
 
       // Set up real-time listener
-      const unsubscribe = onSnapshot(ordersQuery, (querySnapshot) => {
-        const ordersList: Order[] = []
+      const unsubscribe = onSnapshot(
+        ordersQuery,
+        (querySnapshot) => {
+          const ordersList: Order[] = []
 
-        querySnapshot.forEach((doc) => {
-          const data = doc.data() as Omit<Order, "id">
-          ordersList.push({ id: doc.id, ...data })
-        })
+          querySnapshot.forEach((doc) => {
+            const data = doc.data() as Omit<Order, "id">
+            ordersList.push({ id: doc.id, ...data })
+          })
 
-        setOrders(ordersList)
-        setLoading(false)
-      }, (error) => {
-        console.error("Error in orders real-time listener:", error)
-        showNotification("ไม่สามารถโหลดข้อมูลออเดอร์ได้", "error")
-        setLoading(false)
-      })
+          setOrders(ordersList)
+          setLoading(false)
+        },
+        (error) => {
+          console.error("Error in orders real-time listener:", error)
+          showNotification("ไม่สามารถโหลดข้อมูลออเดอร์ได้", "error")
+          setLoading(false)
+        },
+      )
 
       return unsubscribe
     } catch (error) {
@@ -135,9 +132,10 @@ export default function OrdersManagement() {
   const getFilteredOrders = () => {
     if (!searchTerm) return orders
 
-    return orders.filter((order) => 
-      order.table.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      order.id.toLowerCase().includes(searchTerm.toLowerCase())
+    return orders.filter(
+      (order) =>
+        order.table.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        order.id.toLowerCase().includes(searchTerm.toLowerCase()),
     )
   }
 
@@ -176,13 +174,13 @@ export default function OrdersManagement() {
       case "pending":
         return (
           <div className="flex space-x-2">
-            <button 
+            <button
               className="px-3 py-1 bg-green-600 text-white text-xs rounded-md flex items-center"
               onClick={() => updateOrderStatus(order.id, "cooking")}
             >
               <Check className="h-3 w-3 mr-1" /> ยืนยัน
             </button>
-            <button 
+            <button
               className="px-3 py-1 bg-red-600 text-white text-xs rounded-md flex items-center"
               onClick={() => updateOrderStatus(order.id, "cancelled")}
             >
@@ -192,7 +190,7 @@ export default function OrdersManagement() {
         )
       case "cooking":
         return (
-          <button 
+          <button
             className="px-3 py-1 bg-blue-600 text-white text-xs rounded-md flex items-center"
             onClick={() => updateOrderStatus(order.id, "served")}
           >
@@ -201,7 +199,7 @@ export default function OrdersManagement() {
         )
       case "served":
         return (
-          <button 
+          <button
             className="px-3 py-1 bg-green-600 text-white text-xs rounded-md flex items-center"
             onClick={() => updateOrderStatus(order.id, "completed")}
           >
@@ -220,7 +218,7 @@ export default function OrdersManagement() {
       <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-gray-100">
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6">
           <h2 className="text-lg md:text-xl font-bold mb-4 md:mb-0">จัดการออเดอร์</h2>
-          
+
           <div className="w-full md:w-auto flex flex-col md:flex-row space-y-3 md:space-y-0 md:space-x-3">
             <div className="relative">
               <Search className="h-4 w-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
@@ -232,16 +230,13 @@ export default function OrdersManagement() {
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
             </div>
-            
+
             <div className="relative">
               <Filter className="h-4 w-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
               <select
                 className="pl-9 pr-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 w-full appearance-none"
                 value={statusFilter}
-                onChange={(e) => {
-                  setStatusFilter(e.target.value)
-                  if (userId) setupRealTimeOrdersListener(userId)
-                }}
+               onChange={(e) => setStatusFilter(e.target.value)}
               >
                 <option value="all">ทั้งหมด</option>
                 <option value="pending">รอยืนยัน</option>
@@ -251,8 +246,8 @@ export default function OrdersManagement() {
                 <option value="cancelled">ยกเลิก</option>
               </select>
             </div>
-            
-            <button 
+
+            <button
               className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 flex items-center justify-center"
               onClick={() => {
                 if (userId) setupRealTimeOrdersListener(userId)
@@ -278,22 +273,40 @@ export default function OrdersManagement() {
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th
+                    scope="col"
+                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                  >
                     โต๊ะ
                   </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th
+                    scope="col"
+                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                  >
                     รายการ
                   </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th
+                    scope="col"
+                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                  >
                     ราคารวม
                   </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th
+                    scope="col"
+                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                  >
                     เวลา
                   </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th
+                    scope="col"
+                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                  >
                     สถานะ
                   </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th
+                    scope="col"
+                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                  >
                     การดำเนินการ
                   </th>
                 </tr>
@@ -302,7 +315,7 @@ export default function OrdersManagement() {
                 {filteredOrders.map((order) => (
                   <tr key={order.id} className={order.status === "cancelled" ? "bg-gray-50" : ""}>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm font-medium text-gray-900">โต๊ะ {order.table || '-'}</div>
+                      <div className="text-sm font-medium text-gray-900">โต๊ะ {order.table || "-"}</div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm text-gray-500">{order.items?.length || 0} รายการ</div>
@@ -317,30 +330,25 @@ export default function OrdersManagement() {
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className={`text-sm ${order.status === "cancelled" ? "text-gray-500 line-through" : "text-gray-900"}`}>
-                        ฿{order.totalAmount?.toFixed(2) || '0'}
+                      <div
+                        className={`text-sm ${order.status === "cancelled" ? "text-gray-500 line-through" : "text-gray-900"}`}
+                      >
+                        ฿{order.totalAmount?.toFixed(2) || "0"}
                       </div>
-                      {order.status === "cancelled" && (
-                        <div className="text-xs text-red-500 mt-1">ไม่นับเป็นรายได้</div>
-                      )}
+                      {order.status === "cancelled" && <div className="text-xs text-red-500 mt-1">ไม่นับเป็นรายได้</div>}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm text-gray-500">
-                        {order.createdAt?.toDate ? 
-                          new Date(order.createdAt.toDate()).toLocaleTimeString('th-TH', {
-                            hour: '2-digit', 
-                            minute: '2-digit'
-                          }) : 
-                          '-'
-                        }
+                        {order.createdAt?.toDate
+                          ? new Date(order.createdAt.toDate()).toLocaleTimeString("th-TH", {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })
+                          : "-"}
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      {renderStatusBadge(order.status)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      {renderActionButtons(order)}
-                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">{renderStatusBadge(order.status)}</td>
+                    <td className="px-6 py-4 whitespace-nowrap">{renderActionButtons(order)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -350,7 +358,7 @@ export default function OrdersManagement() {
           renderEmptyState()
         )}
       </div>
-      
+
       {/* Notification */}
       {notification.show && (
         <div
@@ -363,4 +371,4 @@ export default function OrdersManagement() {
       )}
     </div>
   )
-} 
+}

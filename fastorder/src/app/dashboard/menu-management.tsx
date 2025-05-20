@@ -111,24 +111,28 @@ export default function MenuManagement() {
       )
 
       // Set up real-time listener
-      const unsubscribe = onSnapshot(menuQuery, (querySnapshot) => {
-        const items: MenuItem[] = []
-        const categorySet = new Set<string>()
+      const unsubscribe = onSnapshot(
+        menuQuery,
+        (querySnapshot) => {
+          const items: MenuItem[] = []
+          const categorySet = new Set<string>()
 
-        querySnapshot.forEach((doc) => {
-          const data = doc.data() as Omit<MenuItem, "id">
-          items.push({ id: doc.id, ...data })
-          if (data.category) categorySet.add(data.category)
-        })
+          querySnapshot.forEach((doc) => {
+            const data = doc.data() as Omit<MenuItem, "id">
+            items.push({ id: doc.id, ...data })
+            if (data.category) categorySet.add(data.category)
+          })
 
-        setMenuItems(items)
-        setCategories(Array.from(categorySet))
-        setLoading(false)
-      }, (error) => {
-        console.error("Error in menu real-time listener:", error)
-        showNotification("ไม่สามารถโหลดเมนูได้", "error")
-        setLoading(false)
-      })
+          setMenuItems(items)
+          setCategories(Array.from(categorySet))
+          setLoading(false)
+        },
+        (error) => {
+          console.error("Error in menu real-time listener:", error)
+          showNotification("ไม่สามารถโหลดเมนูได้", "error")
+          setLoading(false)
+        },
+      )
 
       return unsubscribe
     } catch (error) {
@@ -501,13 +505,6 @@ export default function MenuManagement() {
             </div>
             <h3 className="text-lg font-medium text-gray-900 mb-2">ยังไม่มีเมนู</h3>
             <p className="text-sm text-gray-500 max-w-md mb-6">เพิ่มเมนูอาหารของร้านคุณเพื่อให้ลูกค้าสั่งได้</p>
-            <button
-              onClick={openAddModal}
-              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center"
-            >
-              <Plus className="h-4 w-4 mr-2" />
-              เพิ่มเมนูใหม่
-            </button>
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -679,7 +676,9 @@ export default function MenuManagement() {
                       onChange={handleInputChange}
                       className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                     >
-                      <option value="" disabled>เลือกหมวดหมู่</option>
+                      <option value="" disabled>
+                        เลือกหมวดหมู่
+                      </option>
                       <option value="อาหารจานเดียว">อาหารจานเดียว</option>
                       <option value="กับข้าว">กับข้าว</option>
                       <option value="เครื่องดื่ม">เครื่องดื่ม</option>

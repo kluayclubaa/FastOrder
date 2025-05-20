@@ -28,14 +28,25 @@ import {
 } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { auth, db } from "@/lib/firebase"
-import { doc, getDoc, updateDoc, serverTimestamp, collection, query, where, getDocs, onSnapshot } from "firebase/firestore"
+import {
+  doc,
+  updateDoc,
+  serverTimestamp,
+  collection,
+  query,
+  where,
+  onSnapshot,
+  getDocs,
+  orderBy,
+} from "firebase/firestore"
 import { onAuthStateChanged, signOut } from "firebase/auth"
 import MenuManagement from "./menu-management"
 import OrdersManagement from "./orders-management"
-import { createTestOrder, createMultipleTestOrders } from '@/scripts/generate-test-data'
+import { createMultipleTestOrders } from "@/scripts/generate-test-data"
+import QRCodeGenerator from "./qr-code-generator"
 
 export default function DashboardPage() {
-  const [activeTab, setActiveTab] = useState("menu")
+  const [activeTab, setActiveTab] = useState("overview")
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [profileModalOpen, setProfileModalOpen] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -53,6 +64,7 @@ export default function DashboardPage() {
   const [pendingOrders, setPendingOrders] = useState<any[]>([])
   const [todayRevenue, setTodayRevenue] = useState(0)
   const [todayOrders, setTodayOrders] = useState(0)
+  const [weeklyRevenue, setWeeklyRevenue] = useState<{ date: string; amount: number }[]>([])
   const [isGeneratingTestData, setIsGeneratingTestData] = useState(false)
   const [showDevTools, setShowDevTools] = useState(false)
   const [prevPendingOrdersCount, setPrevPendingOrdersCount] = useState(0)
@@ -81,65 +93,119 @@ export default function DashboardPage() {
       where("isRecommended", "==", true),
       where("isAvailable", "==", true),
     )
-    
-    const unsubscribeMenu = onSnapshot(recommendedMenuQuery, (snapshot) => {
-      const items: any[] = []
-      snapshot.forEach((doc) => {
-        items.push({ id: doc.id, ...doc.data() })
-      })
-      setRecommendedMenuItems(items)
-    }, (error) => {
-      console.error("Error in menu real-time listener:", error)
-    })
+
+    const unsubscribeMenu = onSnapshot(
+      recommendedMenuQuery,
+      (snapshot) => {
+        const items: any[] = []
+        snapshot.forEach((doc) => {
+          items.push({ id: doc.id, ...doc.data() })
+        })
+        setRecommendedMenuItems(items)
+      },
+      (error) => {
+        console.error("Error in menu real-time listener:", error)
+      },
+    )
 
     // Real-time listener for pending orders
     const today = new Date()
     today.setHours(0, 0, 0, 0)
-    
-    const pendingOrdersQuery = query(
-      collection(db, "users", userId, "orders"),
-      where("status", "==", "pending"),
-      where("createdAt", ">=", today)
+
+    const pendingOrdersQuery = query(collection(db, "users", userId, "orders"), where("status", "==", "pending"))
+
+    const unsubscribeOrders = onSnapshot(
+      pendingOrdersQuery,
+      (snapshot) => {
+        const orders: any[] = []
+        snapshot.forEach((doc) => {
+          orders.push({ id: doc.id, ...doc.data() })
+        })
+        setPendingOrders(orders)
+      },
+      (error) => {
+        console.error("Error in orders real-time listener:", error)
+      },
     )
-    
-    const unsubscribeOrders = onSnapshot(pendingOrdersQuery, (snapshot) => {
-      const orders: any[] = []
-      snapshot.forEach((doc) => {
-        orders.push({ id: doc.id, ...doc.data() })
-      })
-      setPendingOrders(orders)
-    }, (error) => {
-      console.error("Error in orders real-time listener:", error)
-    })
 
     // Real-time listener for today's revenue (only completed orders)
     const todayOrdersQuery = query(
       collection(db, "users", userId, "orders"),
       where("createdAt", ">=", today),
-      where("status", "==", "completed") // Only count completed orders
+      where("status", "==", "completed"), // Only count completed orders
     )
-    
-    const unsubscribeRevenue = onSnapshot(todayOrdersQuery, (snapshot) => {
-      let revenue = 0
-      let orderCount = 0
-      
-      snapshot.forEach((doc) => {
-        const orderData = doc.data()
-        revenue += orderData.totalAmount || 0
-        orderCount++
-      })
-      
-      setTodayRevenue(revenue)
-      setTodayOrders(orderCount)
-    }, (error) => {
-      console.error("Error in revenue real-time listener:", error)
-    })
+
+    const unsubscribeRevenue = onSnapshot(
+      todayOrdersQuery,
+      (snapshot) => {
+        let revenue = 0
+        let orderCount = 0
+
+        snapshot.forEach((doc) => {
+          const orderData = doc.data()
+          revenue += orderData.totalAmount || 0
+          orderCount++
+        })
+
+        setTodayRevenue(revenue)
+        setTodayOrders(orderCount)
+      },
+      (error) => {
+        console.error("Error in revenue real-time listener:", error)
+      },
+    )
+
+    // Get weekly revenue data (last 7 days)
+    const fetchWeeklyRevenue = async () => {
+      try {
+        const weekAgo = new Date()
+        weekAgo.setDate(weekAgo.getDate() - 7)
+
+        const weeklyOrdersQuery = query(
+          collection(db, "users", userId, "orders"),
+          where("status", "==", "completed"),
+          where("createdAt", ">=", weekAgo),
+          orderBy("createdAt", "asc"),
+        )
+
+        const snapshot = await getDocs(weeklyOrdersQuery)
+
+        // Group by date
+        const revenueByDate = snapshot.docs.reduce((acc: Record<string, number>, doc) => {
+          const data = doc.data()
+          const date = data.createdAt?.toDate
+            ? new Date(data.createdAt.toDate()).toISOString().split("T")[0]
+            : new Date().toISOString().split("T")[0]
+
+          if (!acc[date]) {
+            acc[date] = 0
+          }
+          acc[date] += data.totalAmount || 0
+          return acc
+        }, {})
+
+        // Convert to array format
+        const revenueArray = Object.entries(revenueByDate).map(([date, amount]) => ({
+          date,
+          amount,
+        }))
+
+        setWeeklyRevenue(revenueArray)
+      } catch (error) {
+        console.error("Error fetching weekly revenue:", error)
+      }
+    }
+
+    fetchWeeklyRevenue()
+    // Set up interval to refresh weekly data every hour
+    const weeklyInterval = setInterval(fetchWeeklyRevenue, 3600000)
 
     // Return cleanup function to unsubscribe from all listeners
     return () => {
       unsubscribeMenu()
       unsubscribeOrders()
       unsubscribeRevenue()
+      clearInterval(weeklyInterval)
     }
   }
 
@@ -148,26 +214,30 @@ export default function DashboardPage() {
     try {
       setLoading(true)
       const userRef = doc(db, "users", userId)
-      
+
       // Set up real-time listener for profile data
-      const unsubscribeProfile = onSnapshot(userRef, (userSnap) => {
-        if (userSnap.exists()) {
-          const userData = userSnap.data()
-          setProfileData({
-            restaurantName: userData.restaurantName || "",
-            phoneNumber: userData.phoneNumber || "",
-            email: userData.email || "",
-            storeName: userData.storeName || "",
-            phone: userData.phone || "",
-          })
-        }
-        setLoading(false)
-      }, (error) => {
-        console.error("Error in profile real-time listener:", error)
-        showNotification("ไม่สามารถโหลดข้อมูลโปรไฟล์ได้", "error")
-        setLoading(false)
-      })
-      
+      const unsubscribeProfile = onSnapshot(
+        userRef,
+        (userSnap) => {
+          if (userSnap.exists()) {
+            const userData = userSnap.data()
+            setProfileData({
+              restaurantName: userData.restaurantName || "",
+              phoneNumber: userData.phoneNumber || "",
+              email: userData.email || "",
+              storeName: userData.storeName || "",
+              phone: userData.phone || "",
+            })
+          }
+          setLoading(false)
+        },
+        (error) => {
+          console.error("Error in profile real-time listener:", error)
+          showNotification("ไม่สามารถโหลดข้อมูลโปรไฟล์ได้", "error")
+          setLoading(false)
+        },
+      )
+
       return unsubscribeProfile
     } catch (error) {
       console.error("Error fetching user profile:", error)
@@ -233,8 +303,8 @@ export default function DashboardPage() {
   // Effect for notification sound
   useEffect(() => {
     // Create audio element
-    notificationSoundRef.current = new Audio('/notification.mp3')
-    
+    notificationSoundRef.current = new Audio("/notification.mp3")
+
     return () => {
       if (notificationSoundRef.current) {
         notificationSoundRef.current = null
@@ -248,13 +318,13 @@ export default function DashboardPage() {
     if (pendingOrders.length > prevPendingOrdersCount && prevPendingOrdersCount > 0) {
       // Play notification sound
       if (notificationSoundRef.current) {
-        notificationSoundRef.current.play().catch(err => console.error('Error playing notification sound:', err))
+        notificationSoundRef.current.play().catch((err) => console.error("Error playing notification sound:", err))
       }
-      
+
       // Show notification
-      showNotification(`มีออเดอร์ใหม่ ${pendingOrders.length - prevPendingOrdersCount} รายการ`, 'success')
+      showNotification(`มีออเดอร์ใหม่ ${pendingOrders.length - prevPendingOrdersCount} รายการ`, "success")
     }
-    
+
     // Update previous count
     setPrevPendingOrdersCount(pendingOrders.length)
   }, [pendingOrders.length])
@@ -262,14 +332,14 @@ export default function DashboardPage() {
   // Function to generate test data (for development only)
   const handleGenerateTestData = async () => {
     if (!user || isGeneratingTestData) return
-    
+
     try {
       setIsGeneratingTestData(true)
       await createMultipleTestOrders(user.uid, 5)
-      showNotification('สร้างข้อมูลทดสอบสำเร็จ', 'success')
+      showNotification("สร้างข้อมูลทดสอบสำเร็จ", "success")
     } catch (error) {
-      console.error('Error generating test data:', error)
-      showNotification('ไม่สามารถสร้างข้อมูลทดสอบได้', 'error')
+      console.error("Error generating test data:", error)
+      showNotification("ไม่สามารถสร้างข้อมูลทดสอบได้", "error")
     } finally {
       setIsGeneratingTestData(false)
     }
@@ -278,14 +348,14 @@ export default function DashboardPage() {
   // Toggle developer tools with keyboard shortcut (Ctrl+Shift+D)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.ctrlKey && e.shiftKey && e.key === 'D') {
+      if (e.ctrlKey && e.shiftKey && e.key === "D") {
         e.preventDefault()
-        setShowDevTools(prev => !prev)
+        setShowDevTools((prev) => !prev)
       }
     }
 
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
+    window.addEventListener("keydown", handleKeyDown)
+    return () => window.removeEventListener("keydown", handleKeyDown)
   }, [])
 
   const renderEmptyState = (title: string, description: string, icon: React.ReactNode) => (
@@ -299,6 +369,46 @@ export default function DashboardPage() {
       </button>
     </div>
   )
+
+  // Simple revenue chart component
+  const RevenueChart = ({ data }: { data: { date: string; amount: number }[] }) => {
+    if (!data || data.length === 0) return null
+
+    const maxAmount = Math.max(...data.map((item) => item.amount))
+    const chartHeight = 200
+
+    return (
+      <div className="relative h-64 w-full mt-4">
+        <div className="flex items-end justify-between h-full w-full">
+          {data.map((item, index) => {
+            const height = (item.amount / maxAmount) * chartHeight || 0
+            const formattedDate = new Date(item.date).toLocaleDateString("th-TH", {
+              day: "numeric",
+              month: "short",
+            })
+
+            return (
+              <div key={index} className="flex flex-col items-center" style={{ flex: "1" }}>
+                <div
+                  className="bg-blue-500 rounded-t-sm w-12 transition-all duration-500 ease-in-out"
+                  style={{ height: `${height}px` }}
+                  title={`฿${item.amount.toFixed(2)}`}
+                ></div>
+                <div className="text-xs text-gray-600 mt-2 rotate-45 origin-left">{formattedDate}</div>
+              </div>
+            )
+          })}
+        </div>
+
+        {/* Y-axis labels */}
+        <div className="absolute left-0 top-0 h-full flex flex-col justify-between text-xs text-gray-500">
+          <span>฿{maxAmount.toFixed(0)}</span>
+          <span>฿{(maxAmount / 2).toFixed(0)}</span>
+          <span>฿0</span>
+        </div>
+      </div>
+    )
+  }
 
   const renderTabContent = () => {
     switch (activeTab) {
@@ -335,7 +445,7 @@ export default function DashboardPage() {
                   <div>
                     <p className="text-sm text-gray-500">มูลค่าเฉลี่ยต่อออเดอร์</p>
                     <h3 className="text-xl md:text-2xl font-bold mt-1">
-                      ฿{todayOrders > 0 ? (todayRevenue / todayOrders).toFixed(2) : "0"}
+                      ฿{todayOrders > 0 ? (todayRevenue / todayOrders).toFixed(2) : "0.00"}
                     </h3>
                   </div>
                   <div className="p-2 bg-purple-50 rounded-lg">
@@ -348,9 +458,7 @@ export default function DashboardPage() {
                 <div className="flex justify-between items-start">
                   <div>
                     <p className="text-sm text-gray-500">ออเดอร์ที่รอยืนยัน</p>
-                    <h3 className="text-xl md:text-2xl font-bold mt-1">
-                      {pendingOrders.length}
-                    </h3>
+                    <h3 className="text-xl md:text-2xl font-bold mt-1">{pendingOrders.length}</h3>
                   </div>
                   <div className="p-2 bg-amber-50 rounded-lg">
                     <Clock className="h-5 w-5 md:h-6 md:w-6 text-amber-500" />
@@ -368,10 +476,8 @@ export default function DashboardPage() {
                     <button className="text-xs md:text-sm px-3 py-1 text-gray-500 rounded-md">30 วัน</button>
                   </div>
                 </div>
-                {todayOrders > 0 ? (
-                  <div className="h-64 flex items-center justify-center">
-                    <p className="text-gray-500">กราฟรายได้จะแสดงที่นี่</p>
-                  </div>
+                {weeklyRevenue.length > 0 ? (
+                  <RevenueChart data={weeklyRevenue} />
                 ) : (
                   renderEmptyState(
                     "ยังไม่มีข้อมูลรายได้",
@@ -385,17 +491,17 @@ export default function DashboardPage() {
                 <h3 className="font-bold mb-4">ออเดอร์ที่รอการยืนยัน</h3>
                 {pendingOrders.length > 0 ? (
                   <div className="space-y-3">
-                    {pendingOrders.map(order => (
+                    {pendingOrders.map((order) => (
                       <div key={order.id} className="border border-gray-200 rounded-lg p-3">
                         <div className="flex justify-between items-center mb-2">
-                          <span className="font-medium">โต๊ะ {order.table || '-'}</span>
+                          <span className="font-medium">โต๊ะ {order.table || "-"}</span>
                           <span className="bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full text-xs">รอยืนยัน</span>
                         </div>
                         <p className="text-sm text-gray-500 mb-2">
-                          {order.items?.length || 0} รายการ · ฿{order.totalAmount?.toFixed(2) || '0'}
+                          {order.items?.length || 0} รายการ · ฿{order.totalAmount?.toFixed(2) || "0"}
                         </p>
                         <div className="flex justify-end">
-                          <button 
+                          <button
                             className="px-3 py-1 bg-blue-600 text-white text-xs rounded-md"
                             onClick={() => setActiveTab("orders")}
                           >
@@ -454,57 +560,7 @@ export default function DashboardPage() {
           </div>
         )
       case "qrcode":
-        return (
-          <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-gray-100">
-            <h2 className="text-lg md:text-xl font-bold mb-6">สร้าง QR Code หมายเลขโต๊ะ</h2>
-            <div className="max-w-md">
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-1">หมายเลขโต๊ะ</label>
-                <div className="flex flex-col sm:flex-row gap-2 sm:gap-0">
-                  <select className="flex-1 border border-gray-300 rounded-md sm:rounded-r-none px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
-                    <option value="">เลือกโซน</option>
-                    <option value="A">โซน A</option>
-                    <option value="B">โซน B</option>
-                    <option value="C">โซน C</option>
-                  </select>
-                  <input
-                    type="number"
-                    className="flex-1 border border-gray-300 rounded-md sm:rounded-l-none px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="หมายเลข"
-                  />
-                </div>
-              </div>
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-1">ข้อมูลเพิ่มเติม (ไม่บังคับ)</label>
-                <input
-                  type="text"
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="เช่น ชื่อร้าน, URL เว็บไซต์"
-                />
-              </div>
-              <div className="mb-6">
-                <label className="block text-sm font-medium text-gray-700 mb-1">ขนาด QR Code</label>
-                <select className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
-                  <option value="small">เล็ก (200x200 px)</option>
-                  <option value="medium" selected>
-                    กลาง (300x300 px)
-                  </option>
-                  <option value="large">ใหญ่ (400x400 px)</option>
-                </select>
-              </div>
-              <button className="w-full bg-blue-600 text-white py-2 rounded-md hover:bg-blue-700">สร้าง QR Code</button>
-            </div>
-
-            <div className="mt-8 border-t border-gray-200 pt-6">
-              <h3 className="font-bold mb-4">QR Code ที่สร้างล่าสุด</h3>
-              {renderEmptyState(
-                "ยังไม่มี QR Code",
-                "สร้าง QR Code สำหรับโต๊ะของคุณเพื่อให้ลูกค้าสแกนและสั่งอาหาร",
-                <QrCode className="h-8 w-8 text-gray-400" />,
-              )}
-            </div>
-          </div>
-        )
+        return <QRCodeGenerator />
       case "orders":
         return <OrdersManagement />
       case "revenue":
@@ -530,24 +586,30 @@ export default function DashboardPage() {
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 md:gap-6 mb-8">
                 <div className="bg-blue-50 p-4 rounded-lg">
                   <p className="text-xs md:text-sm text-blue-700">รายได้รวม</p>
-                  <h3 className="text-xl md:text-2xl font-bold text-blue-900 mt-1">฿0</h3>
+                  <h3 className="text-xl md:text-2xl font-bold text-blue-900 mt-1">฿{todayRevenue.toFixed(2)}</h3>
                 </div>
                 <div className="bg-green-50 p-4 rounded-lg">
                   <p className="text-xs md:text-sm text-green-700">จำนวนออเดอร์</p>
-                  <h3 className="text-xl md:text-2xl font-bold text-green-900 mt-1">0</h3>
+                  <h3 className="text-xl md:text-2xl font-bold text-green-900 mt-1">{todayOrders}</h3>
                 </div>
                 <div className="bg-purple-50 p-4 rounded-lg">
                   <p className="text-xs md:text-sm text-purple-700">มูลค่าเฉลี่ยต่อออเดอร์</p>
-                  <h3 className="text-xl md:text-2xl font-bold text-purple-900 mt-1">฿0</h3>
+                  <h3 className="text-xl md:text-2xl font-bold text-purple-900 mt-1">
+                    ฿{todayOrders > 0 ? (todayRevenue / todayOrders).toFixed(2) : "0.00"}
+                  </h3>
                 </div>
               </div>
 
               <div className="mb-8">
                 <h3 className="font-bold mb-4">รายได้ตามช่วงเวลา</h3>
-                {renderEmptyState(
-                  "ยังไม่มีข้อมูลรายได้",
-                  "เริ่มรับออเดอร์เพื่อดูข้อมูลรายได้ตามช่วงเวลา",
-                  <BarChart3 className="h-8 w-8 text-gray-400" />,
+                {weeklyRevenue.length > 0 ? (
+                  <RevenueChart data={weeklyRevenue} />
+                ) : (
+                  renderEmptyState(
+                    "ยังไม่มีข้อมูลรายได้",
+                    "เริ่มรับออเดอร์เพื่อดูข้อมูลรายได้ตามช่วงเวลา",
+                    <BarChart3 className="h-8 w-8 text-gray-400" />,
+                  )
                 )}
               </div>
 
@@ -592,23 +654,23 @@ export default function DashboardPage() {
   const getPageTitle = (tab: string): string => {
     switch (tab) {
       case "overview":
-        return "ภาพรวม";
+        return "ภาพรวม"
       case "qrcode":
-        return "สร้าง QR Code";
+        return "สร้าง QR Code"
       case "orders":
-        return "ออเดอร์";
+        return "ออเดอร์"
       case "revenue":
-        return "รายได้";
+        return "รายได้"
       case "recommended":
-        return "เมนูแนะนำ";
+        return "เมนูแนะนำ"
       case "tables":
-        return "จัดการโต๊ะ";
+        return "จัดการโต๊ะ"
       case "menu":
-        return "จัดการเมนู";
+        return "จัดการเมนู"
       default:
-        return "";
+        return ""
     }
-  };
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
@@ -822,16 +884,13 @@ export default function DashboardPage() {
         {/* Page Content */}
         <main className="p-4 md:p-6">
           {renderTabContent()}
-          
+
           {/* Developer Tools (hidden by default, press Ctrl+Shift+D to show) */}
-          {showDevTools && process.env.NODE_ENV !== 'production' && (
+          {showDevTools && process.env.NODE_ENV !== "production" && (
             <div className="fixed bottom-4 left-4 md:left-68 bg-gray-800 text-white p-4 rounded-lg shadow-lg z-50">
               <div className="flex items-center justify-between mb-2">
                 <h3 className="text-sm font-bold">Developer Tools</h3>
-                <button 
-                  className="text-gray-400 hover:text-white"
-                  onClick={() => setShowDevTools(false)}
-                >
+                <button className="text-gray-400 hover:text-white" onClick={() => setShowDevTools(false)}>
                   <X className="h-4 w-4" />
                 </button>
               </div>
@@ -847,7 +906,7 @@ export default function DashboardPage() {
                       กำลังสร้างข้อมูลทดสอบ...
                     </>
                   ) : (
-                    'สร้างข้อมูลออเดอร์ทดสอบ (5 รายการ)'
+                    "สร้างข้อมูลออเดอร์ทดสอบ (5 รายการ)"
                   )}
                 </button>
                 <p className="text-xs text-gray-400">หมายเหตุ: ใช้สำหรับการทดสอบเท่านั้น</p>
