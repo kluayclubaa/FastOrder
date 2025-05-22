@@ -32,6 +32,13 @@ type MenuItem = {
   isRecommended: boolean
   createdAt: any
   imageUrl?: string
+  options?: MenuOption[]
+}
+
+type MenuOption = {
+  id: string
+  name: string
+  price: number
 }
 
 type UserProfile = {
@@ -63,8 +70,10 @@ export default function MenuManagement() {
     isRecommended: false,
     imageUrl: "",
     imageFile: null as File | null,
+    options: [] as MenuOption[],
   })
   const router = useRouter()
+  const [newOption, setNewOption] = useState({ name: "", price: "" })
 
   // Check authentication state
   useEffect(() => {
@@ -212,6 +221,7 @@ export default function MenuManagement() {
         isAvailable: formData.isAvailable,
         isRecommended: formData.isRecommended,
         imageUrl: imageUrl,
+        options: formData.options,
         userId,
         storeName: userProfile?.storeName || "",
         restaurantName: userProfile?.restaurantName || "",
@@ -265,6 +275,7 @@ export default function MenuManagement() {
         isAvailable: formData.isAvailable,
         isRecommended: formData.isRecommended,
         imageUrl: imageUrl,
+        options: formData.options,
         updatedAt: serverTimestamp(),
       }
 
@@ -369,6 +380,7 @@ export default function MenuManagement() {
       isRecommended: false,
       imageUrl: "",
       imageFile: null,
+      options: [],
     })
     setEditingItem(null)
   }
@@ -385,6 +397,7 @@ export default function MenuManagement() {
       isRecommended: item.isRecommended,
       imageUrl: item.imageUrl || "",
       imageFile: null,
+      options: item.options || [],
     })
     setIsModalOpen(true)
   }
@@ -441,6 +454,34 @@ export default function MenuManagement() {
     }
 
     if (userId) fetchMenuItems(userId)
+  }
+
+  const addOption = () => {
+    if (!newOption.name || !newOption.price) {
+      showNotification("กรุณากรอกชื่อและราคาของตัวเลือก", "error")
+      return
+    }
+
+    setFormData({
+      ...formData,
+      options: [
+        ...formData.options,
+        {
+          id: Date.now().toString(),
+          name: newOption.name,
+          price: Number(newOption.price),
+        },
+      ],
+    })
+
+    setNewOption({ name: "", price: "" })
+  }
+
+  const removeOption = (optionId: string) => {
+    setFormData({
+      ...formData,
+      options: formData.options.filter((option) => option.id !== optionId),
+    })
   }
 
   return (
@@ -779,6 +820,58 @@ export default function MenuManagement() {
                         </div>
                       </div>
                     </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-1">ตัวเลือกเพิ่มเติม</label>
+                <div className="space-y-2">
+                  {formData.options.map((option) => (
+                    <div key={option.id} className="flex items-center justify-between p-2 bg-gray-50 rounded-md">
+                      <div>
+                        <span className="font-medium">{option.name}</span>
+                        <span className="ml-2 text-gray-500">+฿{option.price.toFixed(2)}</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => removeOption(option.id)}
+                        className="text-red-500 hover:text-red-700"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ))}
+
+                  <div className="flex items-end gap-2 mt-2">
+                    <div className="flex-1">
+                      <label className="block text-xs text-gray-500 mb-1">ชื่อตัวเลือก</label>
+                      <input
+                        type="text"
+                        value={newOption.name}
+                        onChange={(e) => setNewOption({ ...newOption, name: e.target.value })}
+                        placeholder="เช่น เพิ่มหมู, เพิ่มวิปครีม"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div className="w-24">
+                      <label className="block text-xs text-gray-500 mb-1">ราคา (฿)</label>
+                      <input
+                        type="number"
+                        value={newOption.price}
+                        onChange={(e) => setNewOption({ ...newOption, price: e.target.value })}
+                        placeholder="0"
+                        min="0"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={addOption}
+                      className="px-3 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200"
+                    >
+                      <Plus className="h-4 w-4" />
+                    </button>
                   </div>
                 </div>
               </div>

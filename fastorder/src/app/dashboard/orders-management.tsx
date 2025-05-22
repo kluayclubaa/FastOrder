@@ -1,18 +1,31 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { FileText, Check, X, TrendingUp, Filter, Search, RefreshCw } from "lucide-react"
+import { FileText, Check, X, TrendingUp, Filter, Search, RefreshCw, Edit, Plus, Minus } from "lucide-react"
 import { auth, db } from "@/lib/firebase"
 import { collection, query, where, orderBy, onSnapshot, updateDoc, doc, serverTimestamp } from "firebase/firestore"
 import { onAuthStateChanged } from "firebase/auth"
 import { useRouter } from "next/navigation"
+
+type OrderItem = {
+  id: string
+  name: string
+  price: number
+  quantity: number
+  selectedOptions?: {
+    id: string
+    name: string
+    price: number
+  }[]
+  specialInstructions?: string
+}
 
 type Order = {
   id: string
   table: string
   status: string
   totalAmount: number
-  items: any[]
+  items: OrderItem[]
   createdAt: any
   updatedAt: any
 }
@@ -25,83 +38,80 @@ export default function OrdersManagement() {
   const [searchTerm, setSearchTerm] = useState("")
   const [notification, setNotification] = useState({ show: false, message: "", type: "" })
   const router = useRouter()
+  const [editingOrder, setEditingOrder] = useState<Order | null>(null)
+  const [editedItems, setEditedItems] = useState<OrderItem[]>([])
 
   // Check authentication state
-// ตั้ง listener ใหม่ทุกครั้งที่ statusFilter หรือ userId เปลี่ยน
-useEffect(() => {
-  const unsubscribe = onAuthStateChanged(auth, (user) => {
-    if (user) {
-      setUserId(user.uid) // 👍 ตั้งค่าครั้งเดียว
-    } else {
-      router.push("/login")
-    }
-  })
+  // ตั้ง listener ใหม่ทุกครั้งที่ statusFilter หรือ userId เปลี่ยน
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        setUserId(user.uid) // 👍 ตั้งค่าครั้งเดียว
+      } else {
+        router.push("/login")
+      }
+    })
 
-  return () => unsubscribe()
-}, [router])
-
+    return () => unsubscribe()
+  }, [router])
 
   useEffect(() => {
-  if (userId) {
-    const unsubscribe = setupRealTimeOrdersListener(userId)
-    return () => unsubscribe && unsubscribe()
-  }
-}, [statusFilter, userId]) // 🔁 เรียกใหม่เมื่อ statusFilter หรือ userId เปลี่ยน
-
-
-
+    if (userId) {
+      const unsubscribe = setupRealTimeOrdersListener(userId)
+      return () => unsubscribe && unsubscribe()
+    }
+  }, [statusFilter, userId]) // 🔁 เรียกใหม่เมื่อ statusFilter หรือ userId เปลี่ยน
 
   // Set up real-time listener for orders
   const setupRealTimeOrdersListener = (uid: string) => {
-  try {
-    setLoading(true)
+    try {
+      setLoading(true)
 
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
+      const today = new Date()
+      today.setHours(0, 0, 0, 0)
 
-    let ordersQuery
-    if (statusFilter !== "all") {
-      ordersQuery = query(
-        collection(db, "users", uid, "orders"),
-        where("status", "==", statusFilter),
-        where("createdAt", ">=", today),
-        orderBy("createdAt", "desc"),
-      )
-    } else {
-      ordersQuery = query(
-        collection(db, "users", uid, "orders"),
-        where("createdAt", ">=", today),
-        orderBy("createdAt", "desc"),
-      )
-    }
-
-    const unsubscribe = onSnapshot(
-      ordersQuery,
-      (querySnapshot) => {
-        const ordersList: Order[] = []
-        querySnapshot.forEach((doc) => {
-          const data = doc.data() as Omit<Order, "id">
-          ordersList.push({ id: doc.id, ...data })
-        })
-        setOrders(ordersList)
-        setLoading(false)
-      },
-      (error) => {
-        console.error("Error in orders real-time listener:", error)
-        showNotification("ไม่สามารถโหลดข้อมูลออเดอร์ได้", "error")
-        setLoading(false)
+      let ordersQuery
+      if (statusFilter !== "all") {
+        ordersQuery = query(
+          collection(db, "users", uid, "orders"),
+          where("status", "==", statusFilter),
+          where("createdAt", ">=", today),
+          orderBy("createdAt", "desc"),
+        )
+      } else {
+        ordersQuery = query(
+          collection(db, "users", uid, "orders"),
+          where("createdAt", ">=", today),
+          orderBy("createdAt", "desc"),
+        )
       }
-    )
 
-    return unsubscribe
-  } catch (error) {
-    console.error("Error setting up orders listener:", error)
-    showNotification("ไม่สามารถโหลดข้อมูลออเดอร์ได้", "error")
-    setLoading(false)
-    return () => {}
+      const unsubscribe = onSnapshot(
+        ordersQuery,
+        (querySnapshot) => {
+          const ordersList: Order[] = []
+          querySnapshot.forEach((doc) => {
+            const data = doc.data() as Omit<Order, "id">
+            ordersList.push({ id: doc.id, ...data })
+          })
+          setOrders(ordersList)
+          setLoading(false)
+        },
+        (error) => {
+          console.error("Error in orders real-time listener:", error)
+          showNotification("ไม่สามารถโหลดข้อมูลออเดอร์ได้", "error")
+          setLoading(false)
+        },
+      )
+
+      return unsubscribe
+    } catch (error) {
+      console.error("Error setting up orders listener:", error)
+      showNotification("ไม่สามารถโหลดข้อมูลออเดอร์ได้", "error")
+      setLoading(false)
+      return () => {}
+    }
   }
-}
-
 
   // Update order status
   const updateOrderStatus = async (orderId: string, newStatus: string) => {
@@ -173,47 +183,124 @@ useEffect(() => {
     }
   }
 
+  const openEditModal = (order: Order) => {
+    setEditingOrder(order)
+    setEditedItems([...order.items])
+  }
+
+  const updateOrderItems = async () => {
+    if (!userId || !editingOrder) return
+
+    try {
+      setLoading(true)
+
+      // Calculate new total amount
+      const newTotalAmount = editedItems.reduce((total, item) => {
+        const itemBasePrice = item.price * item.quantity
+        const optionsPrice = item.selectedOptions
+          ? item.selectedOptions.reduce((sum, option) => sum + option.price, 0) * item.quantity
+          : 0
+        return total + itemBasePrice + optionsPrice
+      }, 0)
+
+      const orderRef = doc(db, "users", userId, "orders", editingOrder.id)
+
+      await updateDoc(orderRef, {
+        items: editedItems,
+        totalAmount: newTotalAmount,
+        updatedAt: serverTimestamp(),
+      })
+
+      setEditingOrder(null)
+      showNotification("อัปเดตออเดอร์สำเร็จ", "success")
+    } catch (error) {
+      console.error("Error updating order:", error)
+      showNotification("ไม่สามารถอัปเดตออเดอร์ได้", "error")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const updateItemQuantity = (index: number, newQuantity: number) => {
+    if (newQuantity < 1) {
+      removeItem(index)
+      return
+    }
+
+    setEditedItems((items) => items.map((item, idx) => (idx === index ? { ...item, quantity: newQuantity } : item)))
+  }
+
+  const removeItem = (index: number) => {
+    setEditedItems((items) => items.filter((_, idx) => idx !== index))
+  }
+
+  const updateSpecialInstructions = (index: number, instructions: string) => {
+    setEditedItems((items) =>
+      items.map((item, idx) => (idx === index ? { ...item, specialInstructions: instructions } : item)),
+    )
+  }
+
   // Render action buttons based on status
   const renderActionButtons = (order: Order) => {
+    const buttons = []
+
+    // Add edit button for all non-completed/cancelled orders
+    if (order.status !== "completed" && order.status !== "cancelled") {
+      buttons.push(
+        <button
+          key="edit"
+          className="px-3 py-1 bg-gray-600 text-white text-xs rounded-md flex items-center mr-2"
+          onClick={() => openEditModal(order)}
+        >
+          <Edit className="h-3 w-3 mr-1" /> แก้ไข
+        </button>,
+      )
+    }
+
     switch (order.status) {
       case "pending":
-        return (
-          <div className="flex space-x-2">
-            <button
-              className="px-3 py-1 bg-green-600 text-white text-xs rounded-md flex items-center"
-              onClick={() => updateOrderStatus(order.id, "cooking")}
-            >
-              <Check className="h-3 w-3 mr-1" /> ยืนยัน
-            </button>
-            <button
-              className="px-3 py-1 bg-red-600 text-white text-xs rounded-md flex items-center"
-              onClick={() => updateOrderStatus(order.id, "cancelled")}
-            >
-              <X className="h-3 w-3 mr-1" /> ปฏิเสธ
-            </button>
-          </div>
-        )
-      case "cooking":
-        return (
+        buttons.push(
           <button
+            key="confirm"
+            className="px-3 py-1 bg-green-600 text-white text-xs rounded-md flex items-center"
+            onClick={() => updateOrderStatus(order.id, "cooking")}
+          >
+            <Check className="h-3 w-3 mr-1" /> ยืนยัน
+          </button>,
+          <button
+            key="reject"
+            className="px-3 py-1 bg-red-600 text-white text-xs rounded-md flex items-center ml-2"
+            onClick={() => updateOrderStatus(order.id, "cancelled")}
+          >
+            <X className="h-3 w-3 mr-1" /> ปฏิเสธ
+          </button>,
+        )
+        break
+      case "cooking":
+        buttons.push(
+          <button
+            key="served"
             className="px-3 py-1 bg-blue-600 text-white text-xs rounded-md flex items-center"
             onClick={() => updateOrderStatus(order.id, "served")}
           >
             <TrendingUp className="h-3 w-3 mr-1" /> เสิร์ฟแล้ว
-          </button>
+          </button>,
         )
+        break
       case "served":
-        return (
+        buttons.push(
           <button
+            key="complete"
             className="px-3 py-1 bg-green-600 text-white text-xs rounded-md flex items-center"
             onClick={() => updateOrderStatus(order.id, "completed")}
           >
             <Check className="h-3 w-3 mr-1" /> เสร็จสิ้น
-          </button>
+          </button>,
         )
-      default:
-        return null
+        break
     }
+
+    return <div className="flex">{buttons}</div>
   }
 
   const filteredOrders = getFilteredOrders()
@@ -241,7 +328,7 @@ useEffect(() => {
               <select
                 className="pl-9 pr-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 w-full appearance-none"
                 value={statusFilter}
-               onChange={(e) => setStatusFilter(e.target.value)}
+                onChange={(e) => setStatusFilter(e.target.value)}
               >
                 <option value="all">ทั้งหมด</option>
                 <option value="pending">รอยืนยัน</option>
@@ -322,12 +409,16 @@ useEffect(() => {
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm font-medium text-gray-900">โต๊ะ {order.table || "-"}</div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
+                    <td className="px-6 py-4">
                       <div className="text-sm text-gray-500">{order.items?.length || 0} รายการ</div>
                       <div className="text-xs text-gray-400 mt-1">
                         {order.items?.slice(0, 2).map((item: any, index: number) => (
                           <span key={index}>
                             {item.name} x{item.quantity}
+                            {item.selectedOptions &&
+                              item.selectedOptions.length > 0 &&
+                              ` (${item.selectedOptions.map((opt: any) => opt.name).join(", ")})`}
+                            {item.specialInstructions && ` (${item.specialInstructions})`}
                             {index < Math.min(1, (order.items?.length || 0) - 1) ? ", " : ""}
                           </span>
                         ))}
@@ -363,6 +454,133 @@ useEffect(() => {
           renderEmptyState()
         )}
       </div>
+
+      {/* Edit Order Modal */}
+      {editingOrder && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-4 border-b border-gray-200 flex items-center">
+              <h2 className="text-lg font-bold">แก้ไขออเดอร์ #{editingOrder.id.slice(-6).toUpperCase()}</h2>
+              <button onClick={() => setEditingOrder(null)} className="ml-auto p-1 rounded-full hover:bg-gray-100">
+                <X className="h-5 w-5 text-gray-500" />
+              </button>
+            </div>
+
+            <div className="p-4">
+              <div className="mb-4">
+                <div className="flex justify-between items-center mb-2">
+                  <h3 className="font-medium">รายการอาหาร</h3>
+                  <div className="text-sm text-gray-500">โต๊ะ {editingOrder.table}</div>
+                </div>
+
+                <div className="space-y-3">
+                  {editedItems.map((item, index) => (
+                    <div key={index} className="border border-gray-200 rounded-md p-3">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <div className="font-medium">
+                            {item.name}
+                            {item.selectedOptions && item.selectedOptions.length > 0 && (
+                              <span className="font-normal text-sm text-gray-600 ml-1">
+                                ({item.selectedOptions.map((o) => o.name).join(", ")})
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-sm text-gray-500">
+                            ฿{item.price.toFixed(2)}
+                            {item.selectedOptions && item.selectedOptions.length > 0 && (
+                              <span className="ml-2">
+                                + ฿{item.selectedOptions.reduce((sum, o) => sum + o.price, 0).toFixed(2)}
+                              </span>
+                            )}
+                          </div>
+                          {item.specialInstructions && (
+                            <div className="text-sm italic text-gray-600 mt-1">"{item.specialInstructions}"</div>
+                          )}
+                        </div>
+                        <div className="flex items-center">
+                          <button
+                            onClick={() => updateItemQuantity(index, item.quantity - 1)}
+                            className="p-1 rounded-full bg-gray-100"
+                          >
+                            <Minus className="h-4 w-4 text-gray-600" />
+                          </button>
+                          <span className="mx-2 w-6 text-center">{item.quantity}</span>
+                          <button
+                            onClick={() => updateItemQuantity(index, item.quantity + 1)}
+                            className="p-1 rounded-full bg-gray-100"
+                          >
+                            <Plus className="h-4 w-4 text-gray-600" />
+                          </button>
+                          <button
+                            onClick={() => removeItem(index)}
+                            className="ml-2 p-1 rounded-full bg-red-100 text-red-600"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="mt-2">
+                        <textarea
+                          placeholder="คำแนะนำพิเศษ เช่น ไม่ใส่ผัก"
+                          className="w-full p-2 text-sm border border-gray-200 rounded-md"
+                          rows={2}
+                          value={item.specialInstructions || ""}
+                          onChange={(e) => updateSpecialInstructions(index, e.target.value)}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {editedItems.length === 0 && (
+                  <div className="text-center py-4 text-gray-500">ไม่มีรายการอาหาร กรุณาเพิ่มรายการอาหาร</div>
+                )}
+              </div>
+
+              <div className="flex justify-between items-center font-medium mb-4">
+                <div>ยอดรวม</div>
+                <div>
+                  ฿
+                  {editedItems
+                    .reduce((total, item) => {
+                      const itemBasePrice = item.price * item.quantity
+                      const optionsPrice = item.selectedOptions
+                        ? item.selectedOptions.reduce((sum, option) => sum + option.price, 0) * item.quantity
+                        : 0
+                      return total + itemBasePrice + optionsPrice
+                    }, 0)
+                    .toFixed(2)}
+                </div>
+              </div>
+
+              <div className="flex justify-end space-x-3">
+                <button
+                  onClick={() => setEditingOrder(null)}
+                  className="px-4 py-2 border border-gray-300 rounded-md text-gray-700"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  onClick={updateOrderItems}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                  disabled={loading || editedItems.length === 0}
+                >
+                  {loading ? (
+                    <div className="flex items-center">
+                      <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white mr-2"></div>
+                      กำลังบันทึก...
+                    </div>
+                  ) : (
+                    "บันทึกการเปลี่ยนแปลง"
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Notification */}
       {notification.show && (

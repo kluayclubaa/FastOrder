@@ -6,6 +6,12 @@ import { db } from "@/lib/firebase"
 import { collection, query, where, getDocs, addDoc, serverTimestamp } from "firebase/firestore"
 import { useRouter, useSearchParams } from "next/navigation"
 
+type MenuOption = {
+  id: string
+  name: string
+  price: number
+}
+
 type MenuItem = {
   id: string
   name: string
@@ -15,10 +21,13 @@ type MenuItem = {
   isAvailable: boolean
   isRecommended: boolean
   imageUrl?: string
+  options?: MenuOption[]
 }
 
 type CartItem = MenuItem & {
   quantity: number
+  selectedOptions: MenuOption[]
+  specialInstructions: string
 }
 
 export default function CustomerOrderPage() {
@@ -33,6 +42,9 @@ export default function CustomerOrderPage() {
   const [restaurantInfo, setRestaurantInfo] = useState<any>(null)
   const [orderSuccess, setOrderSuccess] = useState(false)
   const [orderNumber, setOrderNumber] = useState("")
+  const [customizingItem, setCustomizingItem] = useState<MenuItem | null>(null)
+  const [selectedOptions, setSelectedOptions] = useState<MenuOption[]>([])
+  const [specialInstructions, setSpecialInstructions] = useState("")
 
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -109,21 +121,56 @@ export default function CustomerOrderPage() {
   }, [selectedCategory, searchTerm, menuItems])
 
   // Calculate cart total
-  const cartTotal = cart.reduce((total, item) => total + item.price * item.quantity, 0)
+  const cartTotal = cart.reduce((total, item) => {
+    const itemBasePrice = item.price * item.quantity
+    const optionsPrice = item.selectedOptions.reduce((sum, option) => sum + option.price, 0) * item.quantity
+    return total + itemBasePrice + optionsPrice
+  }, 0)
 
   // Add item to cart
   const addToCart = (item: MenuItem) => {
-    setCart((prevCart) => {
-      const existingItem = prevCart.find((cartItem) => cartItem.id === item.id)
+    if (item.options && item.options.length > 0) {
+      setCustomizingItem(item)
+      setSelectedOptions([])
+      setSpecialInstructions("")
+    } else {
+      addItemToCart(item, [], "")
+    }
+  }
 
-      if (existingItem) {
-        return prevCart.map((cartItem) =>
-          cartItem.id === item.id ? { ...cartItem, quantity: cartItem.quantity + 1 } : cartItem,
+  // Add item to cart after customization
+  const addItemToCart = (item: MenuItem, options: MenuOption[], instructions: string) => {
+    setCart((prevCart) => {
+      // Calculate total price including options
+      const optionsTotal = options.reduce((sum, option) => sum + option.price, 0)
+
+      const existingItemIndex = prevCart.findIndex(
+        (cartItem) =>
+          cartItem.id === item.id &&
+          JSON.stringify(cartItem.selectedOptions) === JSON.stringify(options) &&
+          cartItem.specialInstructions === instructions,
+      )
+
+      if (existingItemIndex >= 0) {
+        // Update quantity of existing item with same options and instructions
+        return prevCart.map((cartItem, index) =>
+          index === existingItemIndex ? { ...cartItem, quantity: cartItem.quantity + 1 } : cartItem,
         )
       } else {
-        return [...prevCart, { ...item, quantity: 1 }]
+        // Add new item
+        return [
+          ...prevCart,
+          {
+            ...item,
+            quantity: 1,
+            selectedOptions: options,
+            specialInstructions: instructions,
+          },
+        ]
       }
     })
+
+    setCustomizingItem(null)
   }
 
   // Update item quantity in cart
@@ -159,6 +206,8 @@ export default function CustomerOrderPage() {
           name: item.name,
           price: item.price,
           quantity: item.quantity,
+          selectedOptions: item.selectedOptions,
+          specialInstructions: item.specialInstructions,
         })),
         table: tableNumber,
         status: "pending",
@@ -218,6 +267,17 @@ export default function CustomerOrderPage() {
         </div>
       </div>
     )
+  }
+
+  const toggleOption = (option: MenuOption) => {
+    setSelectedOptions((prev) => {
+      const exists = prev.some((o) => o.id === option.id)
+      if (exists) {
+        return prev.filter((o) => o.id !== option.id)
+      } else {
+        return [...prev, option]
+      }
+    })
   }
 
   return (
@@ -351,10 +411,30 @@ export default function CustomerOrderPage() {
               ) : (
                 <div className="space-y-4">
                   {cart.map((item) => (
-                    <div key={item.id} className="flex items-center border-b border-gray-100 pb-4">
+                    <div
+                      key={`${item.id}-${JSON.stringify(item.selectedOptions)}-${item.specialInstructions}`}
+                      className="flex items-center border-b border-gray-100 pb-4"
+                    >
                       <div className="flex-1">
                         <h3 className="font-medium">{item.name}</h3>
-                        <p className="text-sm text-gray-500">฿{item.price.toFixed(2)}</p>
+                        <p className="text-sm text-gray-500">
+                          ฿
+                          {(item.price + item.selectedOptions.reduce((sum, option) => sum + option.price, 0)).toFixed(
+                            2,
+                          )}
+                        </p>
+                        {item.selectedOptions.length > 0 && (
+                          <div className="text-xs text-gray-400 mt-1">
+                            {item.selectedOptions.map((option, idx) => (
+                              <span key={option.id}>
+                                {option.name} (+฿{option.price}){idx < item.selectedOptions.length - 1 ? ", " : ""}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        {item.specialInstructions && (
+                          <div className="text-xs text-gray-400 mt-1 italic">"{item.specialInstructions}"</div>
+                        )}
                       </div>
                       <div className="flex items-center">
                         <button
@@ -398,6 +478,67 @@ export default function CustomerOrderPage() {
                 </button>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Item Customization Modal */}
+      {customizingItem && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg max-w-md w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-4 border-b border-gray-200 flex items-center">
+              <button onClick={() => setCustomizingItem(null)} className="p-1 rounded-full hover:bg-gray-100 mr-2">
+                <X className="h-6 w-6 text-gray-500" />
+              </button>
+              <h2 className="text-lg font-bold">ปรับแต่งรายการ</h2>
+            </div>
+
+            <div className="p-4">
+              <h3 className="font-medium text-lg mb-1">{customizingItem.name}</h3>
+              <p className="text-gray-500 mb-4">฿{customizingItem.price.toFixed(2)}</p>
+
+              {customizingItem.options && customizingItem.options.length > 0 && (
+                <div className="mb-4">
+                  <h4 className="font-medium mb-2">ตัวเลือกเพิ่มเติม</h4>
+                  <div className="space-y-2">
+                    {customizingItem.options.map((option) => (
+                      <div
+                        key={option.id}
+                        className={`p-3 border rounded-md cursor-pointer ${
+                          selectedOptions.some((o) => o.id === option.id)
+                            ? "border-blue-500 bg-blue-50"
+                            : "border-gray-200"
+                        }`}
+                        onClick={() => toggleOption(option)}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span>{option.name}</span>
+                          <span className="text-blue-600">+฿{option.price.toFixed(2)}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="mb-4">
+                <h4 className="font-medium mb-2">คำแนะนำพิเศษ</h4>
+                <textarea
+                  placeholder="เช่น ไม่ใส่ผัก, ไม่เผ็ด"
+                  className="w-full p-3 border border-gray-200 rounded-md"
+                  rows={3}
+                  value={specialInstructions}
+                  onChange={(e) => setSpecialInstructions(e.target.value)}
+                />
+              </div>
+
+              <button
+                className="w-full py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                onClick={() => addItemToCart(customizingItem, selectedOptions, specialInstructions)}
+              >
+                เพิ่มลงตะกร้า
+              </button>
+            </div>
           </div>
         </div>
       )}
