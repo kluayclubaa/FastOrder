@@ -13,7 +13,7 @@ export default function Home() {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
         try {
-          const userRef = doc(db, "users", user.uid) // 👈 หรือเปลี่ยนเป็น "setup" ตามที่คุณใช้
+          const userRef = doc(db, "users", user.uid) 
           const userSnap = await getDoc(userRef)
 
           if (userSnap.exists()) {
@@ -22,7 +22,7 @@ export default function Home() {
 
             router.push(isPaid ? "/dashboard" : "/pricing")
           } else {
-            // ถ้าไม่มี document ให้ redirect ไปตั้งค่า
+            
             router.push("/pricing")
           }
         } catch (error) {
