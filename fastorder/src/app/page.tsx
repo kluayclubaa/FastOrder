@@ -1,9 +1,10 @@
-'use client'
+"use client"
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { onAuthStateChanged } from "firebase/auth"
 import { auth, db, getDoc, doc } from "@/lib/firebase"
 import { HeroSection } from "@/components/ui/hero-section"
+import Footer from "@/components/ui/footer"
 
 export default function Home() {
   const router = useRouter()
@@ -13,7 +14,7 @@ export default function Home() {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
         try {
-          const userRef = doc(db, "users", user.uid) 
+          const userRef = doc(db, "users", user.uid)
           const userSnap = await getDoc(userRef)
 
           if (userSnap.exists()) {
@@ -22,7 +23,6 @@ export default function Home() {
 
             router.push(isPaid ? "/dashboard" : "/pricing")
           } else {
-            
             router.push("/pricing")
           }
         } catch (error) {
@@ -37,11 +37,10 @@ export default function Home() {
     return () => unsubscribe()
   }, [router])
 
-
-
   return (
     <main>
       <HeroSection />
+      <Footer />
     </main>
   )
 }

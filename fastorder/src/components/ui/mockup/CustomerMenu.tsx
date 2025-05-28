@@ -6,7 +6,7 @@ const CustomerMenu: React.FC = () => {
     <div className="mockup-card bg-white rounded-2xl overflow-hidden shadow-lg p-4">
       <div className="bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-xl p-4 mb-4">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-xl font-semibold">บางแก้วคาเฟ่</h3>
+          <h3 className="text-xl font-semibold">ชื่อร้าน</h3>
           <div className="bg-white/20 rounded-lg p-2">
             <ShoppingCart className="w-5 h-5" />
           </div>

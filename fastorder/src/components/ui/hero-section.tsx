@@ -36,22 +36,12 @@ export function HeroSection() {
                     size="lg"
                     className="btn-shopify h-10 sm:h-12 w-full sm:w-auto rounded-full pl-5 pr-3 text-sm sm:text-base"
                   >
-                    <Link href="#link">
+                    <Link href="/register">
                       <span className="text-nowrap">Start Building</span>
                       <ChevronRight className="ml-1" />
                     </Link>
                   </Button>
-                  <Button
-                    key={2}
-                    asChild
-                    size="lg"
-                    variant="ghost"
-                    className="h-10 sm:h-12 w-full sm:w-auto rounded-full px-5 text-sm sm:text-base hover:bg-gray-100 text-[#212b36]"
-                  >
-                    <Link href="#link">
-                      <span className="text-nowrap">Request a demo</span>
-                    </Link>
-                  </Button>
+         
                 </div>
               </div>
             </div>
@@ -62,7 +52,7 @@ export function HeroSection() {
                 muted
                 playsInline
                 className="w-full h-full object-cover opacity-50"
-                src="/heroVideo/1.mp4"
+                src="/1.mp4"
               ></video>
             </div>
           </div>
@@ -107,6 +97,7 @@ const menuItems = [
   { name: "Features", href: "#features" },
   { name: "Solution", href: "#solution" },
   { name: "About", href: "#about" },
+  {name: "Pricing", href: "/showpricing"},
 ]
 
 const HeroHeader = () => {

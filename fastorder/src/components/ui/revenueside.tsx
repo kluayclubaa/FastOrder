@@ -1,411 +1,179 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
-import {
-  TrendingUp,
-  DollarSignIcon as BahtSign,
-  LineChart,
-  PieChart,
-  Calendar,
-  ArrowUpRight,
-  Download,
-} from "lucide-react"
+import { BarChart3, TrendingUp, DollarSign, Calendar } from "lucide-react"
 import { motion } from "framer-motion"
 
 const RevenueInsight = () => {
-  const [isVisible, setIsVisible] = useState(false)
-  const chartRef = useRef<HTMLDivElement>(null)
-  const [counters, setCounters] = useState({
-    orders: 0,
-    revenue: 0,
-    profit: 0,
-  })
+  const revenueData = [
+    { day: "จ", amount: 2500 },
+    { day: "อ", amount: 3200 },
+    { day: "พ", amount: 2800 },
+    { day: "พฤ", amount: 3800 },
+    { day: "ศ", amount: 4200 },
+    { day: "ส", amount: 3600 },
+    { day: "อา", amount: 4500 },
+  ]
 
-  // Animation variants
-  const containerVariants = {
-    hidden: { opacity: 0 },
-    visible: {
-      opacity: 1,
-      transition: {
-        staggerChildren: 0.1,
-        delayChildren: 0.2,
-      },
-    },
-  }
-
-  const itemVariants = {
-    hidden: { y: 20, opacity: 0 },
-    visible: {
-      y: 0,
-      opacity: 1,
-      transition: { type: "spring", stiffness: 100 },
-    },
-  }
-
-  const cardVariants = {
-    hidden: { scale: 0.9, opacity: 0 },
-    visible: (i: number) => ({
-      scale: 1,
-      opacity: 1,
-      transition: {
-        delay: i * 0.1,
-        type: "spring",
-        stiffness: 100,
-      },
-    }),
-    hover: {
-      y: -5,
-      boxShadow: "0 10px 25px rgba(0, 0, 0, 0.1)",
-      transition: { type: "spring", stiffness: 400, damping: 10 },
-    },
-  }
-
-  const barVariants = {
-    hidden: { height: 0 },
-    visible: (height: number) => ({
-      height: `${height}%`,
-      transition: {
-        duration: 1,
-        ease: "easeOut",
-      },
-    }),
-  }
-
-  const progressVariants = {
-    hidden: { width: 0 },
-    visible: (width: number) => ({
-      width: `${width}%`,
-      transition: {
-        duration: 1.5,
-        ease: "easeOut",
-      },
-    }),
-  }
-
-  const pieVariants = {
-    hidden: { rotate: 0 },
-    visible: (rotation: number) => ({
-      rotate: rotation,
-      transition: {
-        duration: 1.5,
-        ease: "easeOut",
-      },
-    }),
-  }
-
-  // Intersection Observer to trigger animations
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting) {
-          setIsVisible(true)
-        }
-      },
-      { threshold: 0.1 },
-    )
-
-    if (chartRef.current) {
-      observer.observe(chartRef.current)
-    }
-
-    return () => {
-      if (chartRef.current) {
-        observer.unobserve(chartRef.current)
-      }
-    }
-  }, [])
-
-  // Counter animation
-  useEffect(() => {
-    if (isVisible) {
-      const interval = setInterval(() => {
-        setCounters((prev) => ({
-          orders: prev.orders < 127 ? prev.orders + 1 : 127,
-          revenue: prev.revenue < 112500 ? prev.revenue + 1000 : 112500,
-          profit: prev.profit < 39500 ? prev.profit + 500 : 39500,
-        }))
-      }, 30)
-
-      return () => clearInterval(interval)
-    }
-  }, [isVisible])
-
-  const barHeights = [20, 35, 50, 80, 65, 75, 90, 60, 40, 30, 45, 55]
-  const categoryWidths = [75, 50, 33]
-  const pieRotations = [45, 165]
+  const maxAmount = Math.max(...revenueData.map((item) => item.amount))
 
   return (
-    <section className="bg-gradient-to-br from-white to-teal-50 py-20">
-      {/* Decorative elements */}
-      <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none">
-        <div className="absolute top-20 right-10 w-64 h-64 rounded-full bg-teal-200 opacity-10 blur-3xl"></div>
-        <div className="absolute bottom-20 left-10 w-80 h-80 rounded-full bg-blue-200 opacity-10 blur-3xl"></div>
-      </div>
-
-      <div className="container mx-auto px-4 sm:px-6 relative z-10">
+    <section className="bg-white py-12">
+      <div className="container mx-auto px-6">
         <motion.div
-          className="grid items-center gap-12 lg:grid-cols-2"
-          initial="hidden"
-          whileInView="visible"
-          viewport={{ once: true, amount: 0.3 }}
-          variants={containerVariants}
+          className="mb-16 text-center"
+          initial={{ opacity: 0, y: 30 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.8 }}
+          viewport={{ once: true }}
         >
-          <motion.div variants={containerVariants}>
-            <motion.span
-              className="mb-2 inline-block rounded-full bg-teal-100 px-4 py-1 text-sm font-semibold text-teal-800"
-              variants={itemVariants}
-            >
-              ข้อมูลเชิงลึกจากข้อมูลจริง
-            </motion.span>
-            <motion.h2 className="mb-6 text-3xl font-bold text-gray-900 md:text-4xl" variants={itemVariants}>
-              แปลงข้อมูลเป็นการตัดสินใจทางธุรกิจที่ปฏิบัติได้จริง
-            </motion.h2>
-            <motion.p className="mb-8 text-lg text-gray-600" variants={itemVariants}>
-              จบวันด้วยความชัดเจน—ดูคำสั่งซื้อ รายได้ และกำไรในที่เดียว ด้วยภาพที่สวยงามที่ช่วยให้คุณเข้าใจธุรกิจของคุณอย่างที่ไม่เคยเป็นมาก่อน
-            </motion.p>
+          <motion.span
+            className="mb-2 inline-block rounded-full bg-green-100 px-4 py-1 text-sm font-semibold text-green-800"
+            initial={{ opacity: 0, scale: 0.8 }}
+            whileInView={{ opacity: 1, scale: 1 }}
+            transition={{ delay: 0.2 }}
+            viewport={{ once: true }}
+          >
+            วิเคราะห์รายได้
+          </motion.span>
+          <motion.h2
+            className="mb-4 text-3xl font-bold text-gray-900 md:text-4xl"
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.3 }}
+            viewport={{ once: true }}
+          >
+            ติดตามรายได้และยอดขายแบบเรียลไทม์
+          </motion.h2>
+          <motion.p
+            className="mx-auto max-w-2xl text-gray-600"
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.4 }}
+            viewport={{ once: true }}
+          >
+            ระบบรายงานที่ครบครัน ช่วยให้คุณเข้าใจธุรกิจมากขึ้น และตัดสินใจได้อย่างมีข้อมูล
+          </motion.p>
+        </motion.div>
 
-            <div className="grid gap-6 sm:grid-cols-2">
+        <div className="grid items-center gap-12 lg:grid-cols-2">
+          <motion.div
+            className="order-2 lg:order-1"
+            initial={{ opacity: 0, x: -50 }}
+            whileInView={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.8 }}
+            viewport={{ once: true }}
+          >
+            <div className="space-y-6">
               {[
                 {
-                  icon: <TrendingUp className="h-6 w-6 text-teal-600" />,
-                  title: "แนวโน้มยอดขาย",
-                  description: "ติดตามรูปแบบการขายตลอดเวลาด้วยแผนภูมิแบบโต้ตอบ",
-                  index: 0,
+                  icon: <BarChart3 className="h-6 w-6 text-green-600" />,
+                  title: "รายงานรายได้รายวัน",
+                  description: "ดูยอดขายและรายได้แต่ละวัน พร้อมกราฟแสดงแนวโน้มที่เข้าใจง่าย",
                 },
                 {
-                  icon: <BahtSign className="h-6 w-6 text-teal-600" />,
-                  title: "อัตรากำไร",
-                  description: "คำนวณกำไรตามต้นทุนและข้อมูลการขาย",
-                  index: 1,
+                  icon: <TrendingUp className="h-6 w-6 text-green-600" />,
+                  title: "วิเคราะห์เมนูยอดนิยม",
+                  description: "ติดตามเมนูที่ขายดี เมนูที่ควรปรับปรุง และแนวโน้มการสั่งอาหาร",
                 },
                 {
-                  icon: <LineChart className="h-6 w-6 text-teal-600" />,
-                  title: "การวิเคราะห์ประสิทธิภาพ",
-                  description: "เปรียบเทียบประสิทธิภาพในช่วงเวลาที่แตกต่างกัน",
-                  index: 2,
+                  icon: <Calendar className="h-6 w-6 text-green-600" />,
+                  title: "รายงานรายเดือนและรายปี",
+                  description: "สรุปผลประกอบการรายเดือน รายปี พร้อมการเปรียบเทียบช่วงเวลา",
                 },
-                {
-                  icon: <PieChart className="h-6 w-6 text-teal-600" />,
-                  title: "รายการยอดนิยม",
-                  description: "ระบุรายการขายดีที่สุดและรายการโปรดของลูกค้า",
-                  index: 3,
-                },
-              ].map((feature, i) => (
+              ].map((feature, index) => (
                 <motion.div
-                  key={i}
-                  className="rounded-xl bg-white p-6 shadow-md"
-                  custom={feature.index}
-                  variants={cardVariants}
-                  whileHover="hover"
+                  key={index}
+                  className="flex items-start"
+                  initial={{ opacity: 0, x: -30 }}
+                  whileInView={{ opacity: 1, x: 0 }}
+                  transition={{ delay: index * 0.2, duration: 0.6 }}
+                  viewport={{ once: true }}
                 >
                   <motion.div
-                    className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-teal-100"
-                    whileHover={{ scale: 1.1, backgroundColor: "#99f6e4" }}
+                    className="mr-4 flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-green-100"
+                    whileHover={{ scale: 1.1, backgroundColor: "#bbf7d0" }}
                   >
                     {feature.icon}
                   </motion.div>
-                  <h3 className="mb-2 text-xl font-bold text-gray-900">{feature.title}</h3>
-                  <p className="text-gray-600">{feature.description}</p>
+                  <div>
+                    <h4 className="text-xl font-semibold text-gray-900">{feature.title}</h4>
+                    <p className="text-gray-600">{feature.description}</p>
+                  </div>
                 </motion.div>
               ))}
             </div>
           </motion.div>
 
-          <motion.div className="relative" variants={containerVariants} ref={chartRef}>
+          <motion.div
+            className="order-1 lg:order-2"
+            initial={{ opacity: 0, x: 50 }}
+            whileInView={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.8 }}
+            viewport={{ once: true }}
+          >
             <motion.div
-              className="rounded-xl bg-gray-900 p-6 shadow-2xl"
-              variants={itemVariants}
+              className="rounded-2xl bg-white p-6 shadow-xl border border-gray-100"
               whileHover={{ y: -5 }}
               transition={{ type: "spring", stiffness: 300 }}
             >
-              <div className="mb-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                <div className="flex items-center">
-                  <h3 className="text-xl font-bold text-white">สรุปประจำวัน</h3>
-                  <motion.div
-                    className="ml-2 flex items-center text-xs text-gray-400"
-                    animate={{ opacity: [0.5, 1, 0.5] }}
-                    transition={{ repeat: Number.POSITIVE_INFINITY, duration: 2 }}
-                  >
-                    <div className="mr-1 h-2 w-2 rounded-full bg-teal-500"></div>
-                    กำลังอัปเดต
-                  </motion.div>
-                </div>
-                <div className="flex gap-2">
-                  <div className="flex items-center rounded-lg bg-gray-800 px-3 py-2 text-sm text-white">
-                    <Calendar className="mr-2 h-4 w-4" />
-                    วันนี้
+              <div className="mb-6">
+                <h3 className="text-xl font-bold text-gray-900 mb-2">รายได้รายวัน</h3>
+                <div className="flex items-center space-x-4">
+                  <div className="flex items-center">
+                    <DollarSign className="h-5 w-5 text-green-600 mr-1" />
+                    <span className="text-2xl font-bold text-green-600">฿4,600</span>
                   </div>
-                  <motion.button
-                    className="rounded-lg bg-teal-500 px-4 py-2 text-sm font-medium text-white flex items-center"
-                    whileHover={{ scale: 1.05, backgroundColor: "#14b8a6" }}
-                    whileTap={{ scale: 0.95 }}
-                  >
-                    ดูรายละเอียด
-                    <ArrowUpRight className="ml-1 h-4 w-4" />
-                  </motion.button>
+                  <div className="flex items-center text-green-600">
+                    <TrendingUp className="h-4 w-4 mr-1" />
+                    <span className="text-sm">+12.5%</span>
+                  </div>
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <motion.div
-                  className="rounded-lg bg-gray-800 p-4"
-                  variants={itemVariants}
-                  whileHover={{ y: -5, backgroundColor: "#1f2937" }}
-                >
-                  <p className="text-sm text-gray-400">คำสั่งซื้อทั้งหมด</p>
-                  <p className="text-2xl font-bold text-white">{counters.orders}</p>
-                  <p className="mt-2 text-xs text-green-400">↑ 12% จากเมื่อวาน</p>
-                </motion.div>
-                <motion.div
-                  className="rounded-lg bg-gray-800 p-4"
-                  variants={itemVariants}
-                  whileHover={{ y: -5, backgroundColor: "#1f2937" }}
-                >
-                  <p className="text-sm text-gray-400">รายได้</p>
-                  <p className="text-2xl font-bold text-white">฿{counters.revenue.toLocaleString()}</p>
-                  <p className="mt-2 text-xs text-green-400">↑ 8% จากเมื่อวาน</p>
-                </motion.div>
-                <motion.div
-                  className="rounded-lg bg-gray-800 p-4"
-                  variants={itemVariants}
-                  whileHover={{ y: -5, backgroundColor: "#1f2937" }}
-                >
-                  <p className="text-sm text-gray-400">กำไร</p>
-                  <p className="text-2xl font-bold text-white">฿{counters.profit.toLocaleString()}</p>
-                  <p className="mt-2 text-xs text-green-400">↑ 5% จากเมื่อวาน</p>
-                </motion.div>
+              <div className="relative h-64">
+                <div className="flex items-end justify-between h-full">
+                  {revenueData.map((item, index) => {
+                    const height = (item.amount / maxAmount) * 200
+                    return (
+                      <motion.div
+                        key={index}
+                        className="flex flex-col items-center"
+                        style={{ flex: 1 }}
+                        initial={{ height: 0 }}
+                        whileInView={{ height: `${height}px` }}
+                        transition={{ delay: index * 0.1, duration: 0.6 }}
+                        viewport={{ once: true }}
+                      >
+                        <motion.div
+                          className="bg-gradient-to-t from-green-500 to-green-400 rounded-t-sm w-8 mb-2"
+                          style={{ height: `${height}px` }}
+                          whileHover={{ scale: 1.1 }}
+                          title={`฿${item.amount.toLocaleString()}`}
+                        />
+                        <span className="text-xs text-gray-600">{item.day}</span>
+                      </motion.div>
+                    )
+                  })}
+                </div>
               </div>
 
-              <motion.div
-                className="mt-6 rounded-lg bg-gray-800 p-4"
-                variants={itemVariants}
-                whileHover={{ backgroundColor: "#1f2937" }}
-              >
-                <div className="flex justify-between items-center mb-4">
-                  <p className="text-sm font-medium text-white">ยอดขายตามชั่วโมง</p>
-                  <motion.button
-                    className="text-xs text-teal-400 flex items-center"
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                  >
-                    <Download className="mr-1 h-3 w-3" />
-                    ดาวน์โหลด
-                  </motion.button>
+              <div className="mt-6 grid grid-cols-3 gap-4 text-center">
+                <div className="p-3 bg-green-50 rounded-lg">
+                  <div className="text-lg font-bold text-green-600">70</div>
+                  <div className="text-xs text-gray-600">ออเดอร์วันนี้</div>
                 </div>
-                <div className="flex h-40 items-end justify-between">
-                  {barHeights.map((height, i) => (
-                    <motion.div
-                      key={i}
-                      className="w-4 rounded-t bg-teal-500"
-                      custom={height}
-                      variants={barVariants}
-                      initial="hidden"
-                      animate={isVisible ? "visible" : "hidden"}
-                      whileHover={{ backgroundColor: "#14b8a6" }}
-                    ></motion.div>
-                  ))}
+                <div className="p-3 bg-blue-50 rounded-lg">
+                  <div className="text-lg font-bold text-blue-600">฿52</div>
+                  <div className="text-xs text-gray-600">ค่าเฉลี่ย/ออเดอร์</div>
                 </div>
-                <div className="mt-2 flex justify-between text-xs text-gray-400">
-                  <span>9:00</span>
-                  <span>12:00</span>
-                  <span>15:00</span>
-                  <span>18:00</span>
-                  <span>21:00</span>
-                </div>
-              </motion.div>
-
-              <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <motion.div
-                  className="rounded-lg bg-gray-800 p-4"
-                  variants={itemVariants}
-                  whileHover={{ backgroundColor: "#1f2937" }}
-                >
-                  <p className="mb-4 text-sm font-medium text-white">หมวดหมู่ยอดนิยม</p>
-                  <div className="space-y-3">
-                    {[
-                      { name: "อาหารจานหลัก", width: 75, color: "bg-purple-500" },
-                      { name: "เครื่องดื่ม", width: 50, color: "bg-indigo-500" },
-                      { name: "ของหวาน", width: 33, color: "bg-teal-500" },
-                    ].map((category, i) => (
-                      <div key={i} className="flex items-center">
-                        <div className="h-3 w-full rounded-full bg-gray-700 overflow-hidden">
-                          <motion.div
-                            className={`h-full rounded-full ${category.color}`}
-                            custom={category.width}
-                            variants={progressVariants}
-                            initial="hidden"
-                            animate={isVisible ? "visible" : "hidden"}
-                          ></motion.div>
-                        </div>
-                        <span className="ml-2 text-xs text-gray-400">{category.name}</span>
-                      </div>
-                    ))}
-                  </div>
-                </motion.div>
-                <motion.div
-                  className="rounded-lg bg-gray-800 p-4"
-                  variants={itemVariants}
-                  whileHover={{ backgroundColor: "#1f2937" }}
-                >
-                  <p className="mb-4 text-sm font-medium text-white">วิธีการชำระเงิน</p>
-                  <div className="relative h-32 w-32 mx-auto">
-                    <motion.div
-                      className="absolute inset-0 rounded-full border-8 border-indigo-500"
-                    
-                    ></motion.div>
-                    <motion.div
-                      className="absolute inset-0 rounded-full border-8 border-transparent border-t-purple-500"
-                      custom={45}
-                      variants={pieVariants}
-                      initial="hidden"
-                      animate={isVisible ? "visible" : "hidden"}
-                    ></motion.div>
-                    <motion.div
-                      className="absolute inset-0 rounded-full border-8 border-transparent border-t-teal-500"
-                      custom={165}
-                      variants={pieVariants}
-                      initial="hidden"
-                      animate={isVisible ? "visible" : "hidden"}
-                    ></motion.div>
-                  </div>
-                  <div className="mt-4 flex justify-around text-xs text-gray-400">
-                    <div className="flex items-center">
-                      <div className="mr-1 h-2 w-2 rounded-full bg-indigo-500"></div>
-                      <span>เงินสด</span>
-                    </div>
-                    <div className="flex items-center">
-                      <div className="mr-1 h-2 w-2 rounded-full bg-purple-500"></div>
-                      <span>บัตร</span>
-                    </div>
-                    <div className="flex items-center">
-                      <div className="mr-1 h-2 w-2 rounded-full bg-teal-500"></div>
-                      <span>โอนเงิน</span>
-                    </div>
-                  </div>
-                </motion.div>
-              </div>
-            </motion.div>
-
-            <motion.div
-              className="absolute -right-4 -top-4 transform rounded-lg bg-white p-4 shadow-lg md:-right-8"
-              variants={itemVariants}
-              whileHover={{ y: -5, boxShadow: "0 15px 30px rgba(0, 0, 0, 0.1)" }}
-            >
-              <div className="flex items-center">
-                <motion.div
-                  className="flex h-12 w-12 items-center justify-center rounded-full bg-teal-100"
-                  whileHover={{ scale: 1.1, backgroundColor: "#99f6e4" }}
-                >
-                  <TrendingUp className="h-6 w-6 text-teal-600" />
-                </motion.div>
-                <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-500">รายได้เฉลี่ยต่อวัน</p>
-                  <p className="text-lg font-bold text-gray-800">฿102,500</p>
+                <div className="p-3 bg-purple-50 rounded-lg">
+                  <div className="text-lg font-bold text-purple-600">42</div>
+                  <div className="text-xs text-gray-600">เมนูที่ขายดี</div>
                 </div>
               </div>
             </motion.div>
           </motion.div>
-        </motion.div>
+        </div>
       </div>
     </section>
   )

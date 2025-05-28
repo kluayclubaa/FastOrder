@@ -17,21 +17,34 @@ import { useRouter } from "next/navigation"
 export default function RegisterPage() {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
+  const [confirmPassword, setConfirmPassword] = useState("")
   const [error, setError] = useState("")
   const [success, setSuccess] = useState("")
   const [isLoading, setIsLoading] = useState(false)
 
   const router = useRouter()
 
-   const redirectBasedOnUserData = (userData: any) => {
+  // Email validation function
+  const isValidEmail = (email: string): boolean => {
+    const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/
+    return emailRegex.test(email)
+  }
+
+  // Password validation function
+  const isValidPassword = (password: string): boolean => {
+    return password.length >= 8 &&
+           /\d/.test(password) &&
+           /[a-z]/.test(password) &&
+           /[A-Z]/.test(password)
+  }
+
+  const redirectBasedOnUserData = (userData: any) => {
     const isPaid = userData.isPaid || false
     const storeInfoComplete = userData.storeInfoComplete || false
 
     setTimeout(() => {
       if (!storeInfoComplete) {
         router.push("/setup")
-      } else if (isPaid) {
-        router.push("/dashboard")
       } else {
         router.push("/pricing")
       }
@@ -45,6 +58,27 @@ export default function RegisterPage() {
     setIsLoading(true)
 
     try {
+      // Validate email format
+      if (!isValidEmail(email)) {
+        setError("รูปแบบอีเมลไม่ถูกต้อง")
+        setIsLoading(false)
+        return
+      }
+
+      // Validate password strength
+      if (!isValidPassword(password)) {
+        setError("รหัสผ่านต้องมีอย่างน้อย 8 ตัวอักษร และมีตัวเลข ตัวพิมพ์เล็ก และตัวพิมพ์ใหญ่")
+        setIsLoading(false)
+        return
+      }
+
+      // Check password confirmation
+      if (password !== confirmPassword) {
+        setError("รหัสผ่านไม่ตรงกัน")
+        setIsLoading(false)
+        return
+      }
+
       const userCredential = await createUserWithEmailAndPassword(auth, email, password)
       const user = userCredential.user
 
@@ -58,6 +92,7 @@ export default function RegisterPage() {
       setSuccess("สมัครสมาชิกสำเร็จ!")
       setEmail("")
       setPassword("")
+      setConfirmPassword("")
 
       // Redirect to pricing page after successful registration
       setTimeout(() => {
@@ -157,10 +192,24 @@ export default function RegisterPage() {
                   <Lock className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                   <Input
                     type="password"
-                    placeholder="รหัสผ่าน"
+                    placeholder="รหัสผ่าน (อย่างน้อย 8 ตัวอักษร A-z, 0-9)"
                     className="pl-10"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <div className="relative">
+                  <Lock className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    type="password"
+                    placeholder="ยืนยันรหัสผ่าน"
+                    className="pl-10"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
                     required
                   />
                 </div>

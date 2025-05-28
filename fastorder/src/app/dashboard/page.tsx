@@ -22,9 +22,10 @@ import {
   Phone,
   Mail,
   FileText,
-  Users,
   Calendar,
   Clock,
+  TrendingUp,
+  Receipt,
 } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { auth, db } from "@/lib/firebase"
@@ -38,14 +39,14 @@ import {
   onSnapshot,
   getDocs,
   orderBy,
-  getDoc
-  
+  getDoc,
 } from "firebase/firestore"
 import { onAuthStateChanged, signOut } from "firebase/auth"
 import MenuManagement from "./menu-management"
 import OrdersManagement from "./orders-management"
 import { createMultipleTestOrders } from "@/scripts/generate-test-data"
 import QRCodeGenerator from "./qr-code-generator"
+import BillsManagement from "./bills-management"
 
 export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState("overview")
@@ -71,36 +72,36 @@ export default function DashboardPage() {
   const [showDevTools, setShowDevTools] = useState(false)
   const [prevPendingOrdersCount, setPrevPendingOrdersCount] = useState(0)
   const notificationSoundRef = useRef<HTMLAudioElement | null>(null)
+  const [popularMenuItems, setPopularMenuItems] = useState<any[]>([])
 
   // Check authentication state
   useEffect(() => {
-  const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-    if (currentUser) {
-      const userDocRef = doc(db, "users", currentUser.uid)
-      const userSnap = await getDoc(userDocRef)
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      if (currentUser) {
+        const userDocRef = doc(db, "users", currentUser.uid)
+        const userSnap = await getDoc(userDocRef)
 
-      if (!userSnap.exists()) {
-        router.push("/setup") // หรือ path ที่เหมาะสม
-        return
+        if (!userSnap.exists()) {
+          router.push("/setup") // หรือ path ที่เหมาะสม
+          return
+        }
+
+        const userData = userSnap.data()
+        if (!userData.isPaid) {
+          router.push("/pricing") // หรือหน้าแจ้งเตือนให้จ่ายเงิน
+          return
+        }
+
+        setUser(currentUser)
+        fetchUserProfile(currentUser.uid)
+        setupRealTimeListeners(currentUser.uid)
+      } else {
+        router.push("/login")
       }
+    })
 
-      const userData = userSnap.data()
-      if (!userData.isPaid) {
-        router.push("/pricing") // หรือหน้าแจ้งเตือนให้จ่ายเงิน
-        return
-      }
-
-      setUser(currentUser)
-      fetchUserProfile(currentUser.uid)
-      setupRealTimeListeners(currentUser.uid)
-    } else {
-      router.push("/login")
-    }
-  })
-
-  return () => unsubscribe()
-}, [router])
-
+    return () => unsubscribe()
+  }, [router])
 
   // Setup real-time listeners for various data
   const setupRealTimeListeners = (userId: string) => {
@@ -213,9 +214,65 @@ export default function DashboardPage() {
       }
     }
 
+    // Fetch popular menu items
+    const fetchPopularMenuItems = async () => {
+      try {
+        const weekAgo = new Date()
+        weekAgo.setDate(weekAgo.getDate() - 7)
+
+        const ordersQuery = query(
+          collection(db, "users", userId, "orders"),
+          where("status", "==", "completed"),
+          where("createdAt", ">=", weekAgo),
+        )
+
+        const snapshot = await getDocs(ordersQuery)
+        const itemCounts: Record<string, { name: string; count: number; revenue: number }> = {}
+
+        snapshot.forEach((doc) => {
+          const orderData = doc.data()
+          if (orderData.items) {
+            orderData.items.forEach((item: any) => {
+              if (!itemCounts[item.id]) {
+                itemCounts[item.id] = {
+                  name: item.name,
+                  count: 0,
+                  revenue: 0,
+                }
+              }
+              itemCounts[item.id].count += item.quantity
+              itemCounts[item.id].revenue += item.price * item.quantity
+
+              // Add options revenue
+              if (item.selectedOptions) {
+                item.selectedOptions.forEach((option: any) => {
+                  itemCounts[item.id].revenue += option.price * item.quantity
+                })
+              }
+            })
+          }
+        })
+
+        // Convert to array and sort by count
+        const popularItems = Object.entries(itemCounts)
+          .map(([id, data]) => ({ id, ...data }))
+          .sort((a, b) => b.count - a.count)
+          .slice(0, 5) // Top 5 items
+
+        setPopularMenuItems(popularItems)
+      } catch (error) {
+        console.error("Error fetching popular menu items:", error)
+      }
+    }
+
     fetchWeeklyRevenue()
-    // Set up interval to refresh weekly data every hour
-    const weeklyInterval = setInterval(fetchWeeklyRevenue, 3600000)
+    fetchPopularMenuItems()
+
+    // Set up interval to refresh data every hour
+    const weeklyInterval = setInterval(() => {
+      fetchWeeklyRevenue()
+      fetchPopularMenuItems()
+    }, 3600000)
 
     // Return cleanup function to unsubscribe from all listeners
     return () => {
@@ -484,7 +541,6 @@ export default function DashboardPage() {
               <div className="lg:col-span-2 bg-white p-4 md:p-6 rounded-xl shadow-sm border border-gray-100">
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6">
                   <h3 className="font-bold mb-2 sm:mb-0">รายได้</h3>
-              
                 </div>
                 {weeklyRevenue.length > 0 ? (
                   <RevenueChart data={weeklyRevenue} />
@@ -497,7 +553,9 @@ export default function DashboardPage() {
                 )}
               </div>
 
-              <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-gray-100">
+
+              <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-gray-100 h-[500px] overflow-y-auto">
+    
                 <h3 className="font-bold mb-4">ออเดอร์ที่รอการยืนยัน</h3>
                 {pendingOrders.length > 0 ? (
                   <div className="space-y-3">
@@ -531,41 +589,80 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-gray-100">
-              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6">
-                <h3 className="font-bold mb-2 sm:mb-0">เมนูแนะนำ</h3>
-              </div>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-[500px] overflow-y-auto">
+              <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-gray-100">
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6">
+                  <h3 className="font-bold mb-2 sm:mb-0">เมนูยอดนิยม </h3>
+                </div>
 
-              {recommendedMenuItems.length > 0 ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                  {recommendedMenuItems.map((item) => (
-                    <div key={item.id} className="border border-gray-200 rounded-lg overflow-hidden">
-                      <div className="h-32 bg-gray-100">
-                        {item.imageUrl ? (
-                          <img
-                            src={item.imageUrl || "/placeholder.svg"}
-                            alt={item.name}
-                            className="w-full h-full object-cover"
-                          />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center">
-                            <Utensils className="h-8 w-8 text-gray-400" />
+                {popularMenuItems.length > 0 ? (
+                  <div className="space-y-3">
+                    {popularMenuItems.map((item, index) => (
+                      <div
+                        key={item.id}
+                        className="flex items-center justify-between p-3 border border-gray-200 rounded-lg"
+                      >
+                        <div className="flex items-center">
+                          <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center mr-3">
+                            <span className="text-blue-600 font-bold text-sm">#{index + 1}</span>
                           </div>
-                        )}
-                      </div>
-                      <div className="p-3">
-                        <h4 className="font-medium text-gray-900">{item.name}</h4>
-                        <div className="flex justify-between items-center mt-2">
-                          <span className="text-blue-600 font-medium">฿{item.price?.toFixed(2)}</span>
-                          <span className="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full">แนะนำ</span>
+                          <div>
+                            <h4 className="font-medium text-gray-900">{item.name}</h4>
+                            <p className="text-sm text-gray-500">สั่ง {item.count} ครั้ง</p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-sm font-medium text-green-600">฿{item.revenue.toFixed(2)}</div>
+                          <div className="text-xs text-gray-500">รายได้</div>
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
+                ) : (
+                  renderEmptyState(
+                    "ยังไม่มีข้อมูลเมนูยอดนิยม",
+                    "ข้อมูลจะแสดงเมื่อมีออเดอร์ที่เสร็จสิ้นแล้ว",
+                    <TrendingUp className="h-8 w-8 text-gray-400" />,
+                  )
+                )}
+              </div>
+
+              <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-gray-100 h-[500px] overflow-y-auto">
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6">
+                  <h3 className="font-bold mb-2 sm:mb-0">เมนูแนะนำ</h3>
                 </div>
-              ) : (
-                renderEmptyState("ยังไม่มีเมนูแนะนำ", "เพิ่มเมนูแนะนำเพื่อแสดงที่นี่", <Star className="h-8 w-8 text-gray-400" />)
-              )}
+
+                {recommendedMenuItems.length > 0 ? (
+                  <div className="space-y-3">
+                    {recommendedMenuItems.slice(0, 4).map((item) => (
+                      <div key={item.id} className="flex items-center p-3 border border-gray-200 rounded-lg">
+                        <div className="w-12 h-12 bg-gray-100 rounded-lg mr-3 overflow-hidden">
+                          {item.imageUrl ? (
+                            <img
+                              src={item.imageUrl || "/placeholder.svg"}
+                              alt={item.name}
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center">
+                              <Utensils className="h-6 w-6 text-gray-400" />
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex-1">
+                          <h4 className="font-medium text-gray-900">{item.name}</h4>
+                          <div className="flex justify-between items-center mt-1">
+                            <span className="text-blue-600 font-medium">฿{item.price?.toFixed(2)}</span>
+                            <span className="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full">แนะนำ</span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  renderEmptyState("ยังไม่มีเมนูแนะนำ", "เพิ่มเมนูแนะนำเพื่อแสดงที่นี่", <Star className="h-8 w-8 text-gray-400" />)
+                )}
+              </div>
             </div>
           </div>
         )
@@ -581,7 +678,7 @@ export default function DashboardPage() {
                 <h2 className="text-lg md:text-xl font-bold mb-4 md:mb-0">สรุปรายได้</h2>
                 <div className="flex flex-wrap items-center gap-2">
                   <button className="px-3 py-1.5 bg-blue-600 text-white text-xs md:text-sm rounded-md">วันนี้</button>
-                
+
                   <div className="relative">
                     <input
                       type="date"
@@ -621,15 +718,14 @@ export default function DashboardPage() {
                   )
                 )}
               </div>
-
-             
             </div>
           </div>
         )
 
-      
       case "menu":
         return <MenuManagement />
+      case "bills":
+        return <BillsManagement />
       default:
         return <div>เลือกเมนูเพื่อดูข้อมูล</div>
     }
@@ -648,6 +744,8 @@ export default function DashboardPage() {
         return "รายได้"
       case "menu":
         return "จัดการเมนู"
+      case "bills":
+        return "จัดการบิล"
       default:
         return ""
     }
@@ -671,7 +769,7 @@ export default function DashboardPage() {
           </div>
           <div className="flex items-center space-x-3">
             <div className="relative">
-              <button className="text-gray-500 hover:text-gray-700">
+              <button onClick={() => setActiveTab("orders")} className="text-gray-500 hover:text-gray-700">
                 <Bell className="h-6 w-6" />
               </button>
               {pendingOrders.length > 0 && (
@@ -785,6 +883,18 @@ export default function DashboardPage() {
               <DollarSign className="h-5 w-5 mr-3" />
               <span>รายได้</span>
             </button>
+            <button
+              className={`w-full flex items-center px-3 py-2 rounded-md ${
+                activeTab === "bills" ? "bg-blue-50 text-blue-700" : "text-gray-700 hover:bg-gray-100"
+              }`}
+              onClick={() => {
+                setActiveTab("bills")
+                setSidebarOpen(false)
+              }}
+            >
+              <Receipt className="h-5 w-5 mr-3" />
+              <span>บิล</span>
+            </button>
           </div>
 
           <div className="mt-8">
@@ -818,7 +928,7 @@ export default function DashboardPage() {
             <h2 className="text-lg font-bold">{getPageTitle(activeTab)}</h2>
             <div className="flex items-center space-x-4">
               <div className="relative">
-                <button className="text-gray-500 hover:text-gray-700">
+                <button onClick={() => setActiveTab("orders")} className="text-gray-500 hover:text-gray-700">
                   <Bell className="h-6 w-6" />
                 </button>
                 {pendingOrders.length > 0 && (
@@ -832,11 +942,7 @@ export default function DashboardPage() {
                   className="flex items-center space-x-2 focus:outline-none"
                   onClick={() => setProfileModalOpen(true)}
                 >
-                  <img
-                    src="/placeholder.svg?height=32&width=32"
-                    alt="Profile"
-                    className="h-8 w-8 rounded-full object-cover"
-                  />
+                 
                   <div className="hidden md:block text-left">
                     <p className="text-sm font-medium">{profileData.storeName || "ร้านอาหารของคุณ"}</p>
                     <p className="text-xs text-gray-500">
@@ -898,18 +1004,7 @@ export default function DashboardPage() {
               </div>
 
               <div className="space-y-4">
-                <div className="flex justify-center mb-6">
-                  <div className="relative">
-                    <img
-                      src="/placeholder.svg?height=80&width=80"
-                      alt="Profile"
-                      className="h-20 w-20 rounded-full object-cover border-2 border-gray-200"
-                    />
-                    <button className="absolute bottom-0 right-0 bg-blue-600 text-white p-1 rounded-full">
-                      <Plus className="h-4 w-4" />
-                    </button>
-                  </div>
-                </div>
+              
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">ชื่อร้านอาหาร</label>

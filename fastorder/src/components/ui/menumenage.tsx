@@ -7,7 +7,6 @@ import { motion } from "framer-motion"
 const MenuManagement = () => {
   const containerRef = useRef<HTMLDivElement>(null)
 
-  // Animation variants
   const containerVariants = {
     hidden: { opacity: 0 },
     visible: {
@@ -65,35 +64,26 @@ const MenuManagement = () => {
       name: "ต้มยำกุ้ง",
       description: "ต้มยำกุ้งน้ำใส รสชาติเข้มข้น เปรี้ยวหวานกำลังดี",
       price: "฿180",
-      image:
-        "https://images.pexels.com/photos/699953/pexels-photo-699953.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=2",
+      image: "/placeholder.svg?height=100&width=100",
     },
     {
       id: 2,
       name: "ผัดไทยกุ้งสด",
       description: "ผัดไทยเส้นเหนียวนุ่ม กุ้งสดตัวใหญ่ คลุกเคล้ากับซอสสูตรพิเศษ",
       price: "฿120",
-      image:
-        "https://images.pexels.com/photos/12365244/pexels-photo-12365244.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=2",
+      image: "/placeholder.svg?height=100&width=100",
     },
     {
       id: 3,
       name: "ข้าวผัดปู",
       description: "ข้าวหอมมะลิผัดกับเนื้อปูก้อนใหญ่ ไข่ และผักสด",
       price: "฿150",
-      image:
-        "https://images.pexels.com/photos/5409010/pexels-photo-5409010.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=2",
+      image: "/placeholder.svg?height=100&width=100",
     },
   ]
 
   return (
-    <section className="bg-gradient-to-br from-blue-50 to-indigo-50 py-20 min-h-screen">
-      {/* Decorative elements */}
-      <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none">
-        <div className="absolute top-20 left-10 w-64 h-64 rounded-full bg-yellow-200 opacity-10 blur-3xl"></div>
-        <div className="absolute bottom-20 right-10 w-80 h-80 rounded-full bg-blue-200 opacity-10 blur-3xl"></div>
-      </div>
-
+    <section className="bg-white py-12">
       <div className="container mx-auto px-4 sm:px-6 relative z-10" ref={containerRef}>
         <motion.div
           className="mb-16 text-center"
@@ -109,10 +99,10 @@ const MenuManagement = () => {
             จัดการเมนู
           </motion.span>
           <motion.h2 className="mb-4 text-3xl font-bold text-gray-900 md:text-4xl" variants={itemVariants}>
-            สร้างเมนูดิจิทัลของคุณอย่างง่ายดาย
+            สร้างและจัดการเมนูดิจิทัลอย่างง่ายดาย
           </motion.h2>
           <motion.p className="mx-auto max-w-2xl text-gray-600" variants={itemVariants}>
-            ระบบอินเทอร์เฟซแบบลากและวางที่ใช้งานง่าย ช่วยให้คุณสร้างและอัปเดตเมนูได้แบบเรียลไทม์ โดยไม่จำเป็นต้องมีความรู้ทางเทคนิค
+            ระบบจัดการเมนูที่ใช้งานง่าย ช่วยให้คุณเพิ่ม แก้ไข และอัปเดตเมนูได้แบบเรียลไทม์ โดยไม่จำเป็นต้องมีความรู้ทางเทคนิค
           </motion.p>
         </motion.div>
 
@@ -145,8 +135,9 @@ const MenuManagement = () => {
                     />
                   </div>
                   <motion.div
-                    className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-                   
+                    className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 cursor-pointer"
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
                   >
                     บันทึกการเปลี่ยนแปลง
                   </motion.div>
@@ -160,15 +151,13 @@ const MenuManagement = () => {
                     className="flex flex-col sm:flex-row sm:items-center justify-between rounded-lg border border-gray-200 bg-white p-4 shadow-sm"
                     custom={index}
                     variants={menuItemVariants}
-                   
+                    whileHover="hover"
                   >
                     <div className="flex flex-col sm:flex-row sm:items-center mb-4 sm:mb-0">
-                      <div className="relative h-24 w-24 sm:h-16 sm:w-16 mx-auto sm:mx-0 flex-shrink-0 overflow-hidden rounded-lg">
-                        <img
-                          src={item.image || "/placeholder.svg"}
-                          alt={item.name}
-                          className="h-full w-full object-cover"
-                        />
+                      <div className="relative h-16 w-16 mx-auto sm:mx-0 flex-shrink-0 overflow-hidden rounded-lg bg-gray-100">
+                        <div className="h-full w-full flex items-center justify-center">
+                          <ImageIcon className="h-6 w-6 text-gray-400" />
+                        </div>
                         <motion.button
                           className="absolute bottom-0 right-0 rounded-tl-lg bg-blue-600 p-1 text-white hover:bg-blue-700"
                           whileHover={{ scale: 1.1 }}
@@ -231,25 +220,25 @@ const MenuManagement = () => {
               ควบคุมเมนูของคุณได้อย่างสมบูรณ์
             </motion.h3>
             <motion.p className="mb-6 text-gray-600" variants={itemVariants}>
-              ระบบจัดการเมนูของเราให้คุณมีอำนาจในการสร้าง อัปเดต และปรับแต่งเมนูดิจิทัลของคุณแบบเรียลไทม์ โดยไม่จำเป็นต้องมีความรู้ทางเทคนิค
+              ระบบจัดการเมนูที่ทรงพลัง ให้คุณสร้าง อัปเดต และปรับแต่งเมนูดิจิทัลได้แบบเรียลไทม์ พร้อมฟีเจอร์ครบครันสำหรับร้านอาหารสมัยใหม่
             </motion.p>
 
             <div className="space-y-6">
               {[
                 {
                   icon: <Edit className="h-5 w-5 text-blue-600" />,
-                  title: "อินเทอร์เฟซแบบลากและวาง",
-                  description: "จัดระเบียบหมวดหมู่และรายการเมนูของคุณได้อย่างง่ายดายด้วยฟังก์ชันลากและวางที่ใช้งานง่าย",
+                  title: "แก้ไขเมนูแบบเรียลไทม์",
+                  description: "เปลี่ยนแปลงราคา รายละเอียด หรือสถานะเมนูได้ทันที ลูกค้าจะเห็นการอัปเดตแบบเรียลไทม์",
                 },
                 {
                   icon: <ImageIcon className="h-5 w-5 text-blue-600" />,
-                  title: "การแก้ไขภาพที่สมบูรณ์",
-                  description: "อัปโหลดรูปภาพคุณภาพสูงสำหรับแต่ละเมนู เพิ่มคำอธิบายโดยละเอียด และกำหนดราคาที่ถูกต้อง",
+                  title: "จัดการรูปภาพและรายละเอียด",
+                  description: "อัปโหลดรูปภาพคุณภาพสูง เพิ่มคำอธิบายโดยละเอียด และจัดหมวดหมู่เมนูอย่างเป็นระบบ",
                 },
                 {
                   icon: <MenuSquare className="h-5 w-5 text-blue-600" />,
-                  title: "อัปเดตแบบเรียลไทม์",
-                  description: "การเปลี่ยนแปลงเมนูของคุณจะปรากฏทันทีสำหรับลูกค้า ช่วยให้คุณอัปเดตราคาหรือความพร้อมให้บริการได้อย่างรวดเร็ว",
+                  title: "ระบบจัดหมวดหมู่อัจฉริยะ",
+                  description: "จัดกลุ่มเมนูตามประเภท กำหนดเมนูแนะนำ และควบคุมการแสดงผลได้อย่างยืดหยุ่น",
                 },
               ].map((feature, index) => (
                 <motion.div key={index} className="flex" custom={index} variants={featureVariants}>

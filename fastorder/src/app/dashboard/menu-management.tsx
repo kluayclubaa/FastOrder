@@ -541,9 +541,9 @@ export default function MenuManagement() {
           </div>
         ) : menuItems.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
-            <div className="bg-gray-100 p-4 rounded-full mb-4">
+            <button onClick={openAddModal} className="bg-gray-100 p-4 rounded-full mb-4">
               <Plus className="h-8 w-8 text-gray-400" />
-            </div>
+            </button>
             <h3 className="text-lg font-medium text-gray-900 mb-2">ยังไม่มีเมนู</h3>
             <p className="text-sm text-gray-500 max-w-md mb-6">เพิ่มเมนูอาหารของร้านคุณเพื่อให้ลูกค้าสั่งได้</p>
           </div>

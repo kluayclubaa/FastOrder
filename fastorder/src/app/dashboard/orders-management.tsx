@@ -3,7 +3,18 @@
 import { useState, useEffect } from "react"
 import { FileText, Check, X, TrendingUp, Filter, Search, RefreshCw, Edit, Plus, Minus } from "lucide-react"
 import { auth, db } from "@/lib/firebase"
-import { collection, query, where, orderBy, onSnapshot, updateDoc, doc, serverTimestamp } from "firebase/firestore"
+import {
+  collection,
+  query,
+  where,
+  orderBy,
+  onSnapshot,
+  updateDoc,
+  doc,
+  serverTimestamp,
+  getDocs,
+  writeBatch,
+} from "firebase/firestore"
 import { onAuthStateChanged } from "firebase/auth"
 import { useRouter } from "next/navigation"
 
@@ -28,6 +39,7 @@ type Order = {
   items: OrderItem[]
   createdAt: any
   updatedAt: any
+  queueNumber?: number
 }
 
 export default function OrdersManagement() {
@@ -42,11 +54,10 @@ export default function OrdersManagement() {
   const [editedItems, setEditedItems] = useState<OrderItem[]>([])
 
   // Check authentication state
-  // ตั้ง listener ใหม่ทุกครั้งที่ statusFilter หรือ userId เปลี่ยน
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       if (user) {
-        setUserId(user.uid) // 👍 ตั้งค่าครั้งเดียว
+        setUserId(user.uid)
       } else {
         router.push("/login")
       }
@@ -60,7 +71,7 @@ export default function OrdersManagement() {
       const unsubscribe = setupRealTimeOrdersListener(userId)
       return () => unsubscribe && unsubscribe()
     }
-  }, [statusFilter, userId]) // 🔁 เรียกใหม่เมื่อ statusFilter หรือ userId เปลี่ยน
+  }, [statusFilter, userId])
 
   // Set up real-time listener for orders
   const setupRealTimeOrdersListener = (uid: string) => {
@@ -113,6 +124,34 @@ export default function OrdersManagement() {
     }
   }
 
+  // Update queue numbers when an order is completed
+  const updateQueueNumbers = async (userId: string) => {
+    try {
+      // Get all cooking orders ordered by queue number
+      const cookingOrdersQuery = query(
+        collection(db, "users", userId, "orders"),
+        where("status", "==", "cooking"),
+        orderBy("queueNumber", "asc"),
+      )
+
+      const cookingSnapshot = await getDocs(cookingOrdersQuery)
+      const batch = writeBatch(db)
+
+      // Update queue numbers sequentially
+      cookingSnapshot.docs.forEach((doc, index) => {
+        const orderRef = doc.ref
+        batch.update(orderRef, {
+          queueNumber: index + 1,
+          updatedAt: serverTimestamp(),
+        })
+      })
+
+      await batch.commit()
+    } catch (error) {
+      console.error("Error updating queue numbers:", error)
+    }
+  }
+
   // Update order status
   const updateOrderStatus = async (orderId: string, newStatus: string) => {
     if (!userId) return
@@ -121,10 +160,32 @@ export default function OrdersManagement() {
       setLoading(true)
       const orderRef = doc(db, "users", userId, "orders", orderId)
 
-      await updateDoc(orderRef, {
+      const updateData: any = {
         status: newStatus,
         updatedAt: serverTimestamp(),
-      })
+      }
+
+      // If confirming order (pending -> cooking), assign queue number
+      if (newStatus === "cooking") {
+        // Get current cooking orders to determine queue position
+        const cookingOrdersQuery = query(
+          collection(db, "users", userId, "orders"),
+          where("status", "==", "cooking"),
+          orderBy("updatedAt", "asc"),
+        )
+
+        const cookingSnapshot = await getDocs(cookingOrdersQuery)
+        const queueNumber = cookingSnapshot.size + 1
+
+        updateData.queueNumber = queueNumber
+      }
+
+      await updateDoc(orderRef, updateData)
+
+      // If order is served or cancelled, update queue numbers for remaining cooking orders
+      if (newStatus === "served" || newStatus === "cancelled") {
+        await updateQueueNumbers(userId)
+      }
 
       showNotification(`อัปเดตสถานะออเดอร์เป็น "${newStatus}" สำเร็จ`, "success")
     } catch (error) {
@@ -166,12 +227,16 @@ export default function OrdersManagement() {
   )
 
   // Render status badge
-  const renderStatusBadge = (status: string) => {
+  const renderStatusBadge = (status: string, queueNumber?: number) => {
     switch (status) {
       case "pending":
         return <span className="bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full text-xs">รอยืนยัน</span>
       case "cooking":
-        return <span className="bg-orange-100 text-orange-800 px-2 py-1 rounded-full text-xs">กำลังปรุง</span>
+        return (
+          <span className="bg-orange-100 text-orange-800 px-2 py-1 rounded-full text-xs">
+            กำลังปรุง {queueNumber && `(คิว #${queueNumber})`}
+          </span>
+        )
       case "served":
         return <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded-full text-xs">เสิร์ฟแล้ว</span>
       case "completed":
@@ -443,7 +508,9 @@ export default function OrdersManagement() {
                           : "-"}
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">{renderStatusBadge(order.status)}</td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      {renderStatusBadge(order.status, order.queueNumber)}
+                    </td>
                     <td className="px-6 py-4 whitespace-nowrap">{renderActionButtons(order)}</td>
                   </tr>
                 ))}

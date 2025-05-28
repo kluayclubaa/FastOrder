@@ -1,35 +1,65 @@
 "use client"
 
 import { useState } from "react"
-import Image from "next/image"
-import { QrCode, ArrowRight, ShoppingCart } from "lucide-react"
+import {
+  QrCode,
+  ShoppingCart,
+  Smartphone,
+  Utensils,
+  FileText,
+  Check,
+  X,
+  TrendingUp,
+  Filter,
+  Search,
+  Edit,
+} from "lucide-react"
 import { motion } from "framer-motion"
 
-const QrCodeFeature = () => {
-  const [cart, setCart] = useState<number[]>([])
+const QrOrderFeature = () => {
+  const [statusFilter, setStatusFilter] = useState("all")
+  const [searchTerm, setSearchTerm] = useState("")
 
-  const addToCart = (id: number) => {
-    setCart([...cart, id])
-  }
-
-  const menuItems = [
+  // Mock order data for demonstration
+  const mockOrders = [
     {
-      id: 1,
-      name: "พิซซ่าฮาวายเอี้ยน",
-      description: "พิซซ่าหน้าสับปะรด แฮม และชีส",
-      price: "฿299",
-      image: "/placeholder.svg?height=300&width=400",
+      id: "ORD001",
+      table: "A1",
+      status: "pending",
+      totalAmount: 450,
+      items: [
+        { name: "ต้มยำกุ้ง", quantity: 1, price: 180 },
+        { name: "ผัดไทยกุ้งสด", quantity: 2, price: 135 },
+      ],
+      createdAt: "14:30",
+      queueNumber: null,
     },
     {
-      id: 2,
-      name: "สเต็กเนื้อออสเตรเลีย",
-      description: "เนื้อออสเตรเลียคุณภาพดี เสิร์ฟพร้อมมันบด",
-      price: "฿459",
-      image: "/placeholder.svg?height=300&width=400",
+      id: "ORD002",
+      table: "B3",
+      status: "cooking",
+      totalAmount: 320,
+      items: [
+        { name: "ข้าวผัดปู", quantity: 1, price: 160 },
+        { name: "น้ำมะนาว", quantity: 2, price: 80 },
+      ],
+      createdAt: "14:25",
+      queueNumber: 1,
+    },
+    {
+      id: "ORD003",
+      table: "C2",
+      status: "served",
+      totalAmount: 280,
+      items: [
+        { name: "ส้มตำไทย", quantity: 1, price: 120 },
+        { name: "ไก่ย่าง", quantity: 1, price: 160 },
+      ],
+      createdAt: "14:20",
+      queueNumber: null,
     },
   ]
 
-  // Animation variants
   const containerVariants = {
     hidden: { opacity: 0 },
     visible: {
@@ -50,20 +80,6 @@ const QrCodeFeature = () => {
     },
   }
 
-  const cardVariants = {
-    hidden: { scale: 0.9, opacity: 0 },
-    visible: {
-      scale: 1,
-      opacity: 1,
-      transition: { type: "spring", stiffness: 100 },
-    },
-    hover: {
-      scale: 1.03,
-      boxShadow: "0 10px 25px rgba(0, 0, 0, 0.1)",
-      transition: { type: "spring", stiffness: 400, damping: 10 },
-    },
-  }
-
   const stepVariants = {
     hidden: { x: -20, opacity: 0 },
     visible: (i: number) => ({
@@ -77,8 +93,73 @@ const QrCodeFeature = () => {
     }),
   }
 
+  // Render status badge
+  const renderStatusBadge = (status: string, queueNumber?: number | null) => {
+    switch (status) {
+      case "pending":
+        return <span className="bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full text-xs">รอยืนยัน</span>
+      case "cooking":
+        return (
+          <span className="bg-orange-100 text-orange-800 px-2 py-1 rounded-full text-xs">
+            กำลังปรุง {queueNumber && `(คิว #${queueNumber})`}
+          </span>
+        )
+      case "served":
+        return <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded-full text-xs">เสิร์ฟแล้ว</span>
+      case "completed":
+        return <span className="bg-green-100 text-green-800 px-2 py-1 rounded-full text-xs">เสร็จสิ้น</span>
+      case "cancelled":
+        return <span className="bg-red-100 text-red-800 px-2 py-1 rounded-full text-xs">ยกเลิก</span>
+      default:
+        return <span className="bg-gray-100 text-gray-800 px-2 py-1 rounded-full text-xs">{status}</span>
+    }
+  }
+
+  // Render action buttons based on status
+  const renderActionButtons = (status: string) => {
+    const buttons = []
+
+    // Add edit button for all non-completed/cancelled orders
+    if (status !== "completed" && status !== "cancelled") {
+      buttons.push(
+        <button key="edit" className="px-2 py-1 bg-gray-600 text-white text-xs rounded-md flex items-center mr-1">
+          <Edit className="h-3 w-3 mr-1" /> แก้ไข
+        </button>,
+      )
+    }
+
+    switch (status) {
+      case "pending":
+        buttons.push(
+          <button key="confirm" className="px-2 py-1 bg-green-600 text-white text-xs rounded-md flex items-center mr-1">
+            <Check className="h-3 w-3 mr-1" /> ยืนยัน
+          </button>,
+          <button key="reject" className="px-2 py-1 bg-red-600 text-white text-xs rounded-md flex items-center">
+            <X className="h-3 w-3 mr-1" /> ปฏิเสธ
+          </button>,
+        )
+        break
+      case "cooking":
+        buttons.push(
+          <button key="served" className="px-2 py-1 bg-blue-600 text-white text-xs rounded-md flex items-center">
+            <TrendingUp className="h-3 w-3 mr-1" /> เสิร์ฟแล้ว
+          </button>,
+        )
+        break
+      case "served":
+        buttons.push(
+          <button key="complete" className="px-2 py-1 bg-green-600 text-white text-xs rounded-md flex items-center">
+            <Check className="h-3 w-3 mr-1" /> เสร็จสิ้น
+          </button>,
+        )
+        break
+    }
+
+    return <div className="flex flex-wrap gap-1">{buttons}</div>
+  }
+
   return (
-    <section className="bg-gradient-to-br from-sky-50 to-slate-100 py-20 text-slate-800">
+    <section className="bg-white py-12 text-slate-800">
       <div className="container mx-auto px-6 relative z-10">
         <motion.div
           className="flex flex-col-reverse items-center justify-between gap-12 lg:flex-row md:flex-row"
@@ -87,7 +168,6 @@ const QrCodeFeature = () => {
           whileInView="visible"
           viewport={{ once: true, amount: 0.3 }}
         >
-          {/* Text content - will appear first on mobile */}
           <motion.div className="w-full lg:w-1/2" variants={itemVariants}>
             <motion.h2
               className="mb-6 text-4xl font-bold leading-tight text-blue-800"
@@ -96,7 +176,7 @@ const QrCodeFeature = () => {
               transition={{ delay: 0.2 }}
               viewport={{ once: true }}
             >
-              จาก QR Code สู่การสั่งอาหารในไม่กี่วินาที
+              จาก QR Code สู่การจัดการออเดอร์
             </motion.h2>
 
             <motion.p
@@ -106,14 +186,39 @@ const QrCodeFeature = () => {
               transition={{ delay: 0.3 }}
               viewport={{ once: true }}
             >
-              มอบความสะดวกสบายให้กับลูกค้าของคุณ ด้วยระบบการสั่งอาหารผ่าน QR Code ลูกค้าสามารถดูเมนู สั่งอาหาร
-              และชำระเงินได้ทั้งหมดจากอุปกรณ์ของตัวเอง
+              ระบบจัดการออเดอร์ที่เชื่อมต่อกับ QR Code ช่วยให้ร้านอาหารสามารถติดตามและจัดการออเดอร์ได้อย่างมีประสิทธิภาพ
+              ตั้งแต่การรับออเดอร์จนถึงการเสิร์ฟ
             </motion.p>
 
             <div className="space-y-6">
-              {[1, 2, 3, 4].map((step, index) => (
+              {[
+                {
+                  step: 1,
+                  title: "รับออเดอร์อัตโนมัติ",
+                  description: "ออเดอร์จาก QR Code จะเข้าสู่ระบบทันที",
+                  icon: <QrCode className="h-6 w-6" />,
+                },
+                {
+                  step: 2,
+                  title: "จัดการคิวการปรุงอาหาร",
+                  description: "ระบบจัดลำดับคิวและแจ้งเตือนครัวอัตโนมัติ",
+                  icon: <Utensils className="h-6 w-6" />,
+                },
+                {
+                  step: 3,
+                  title: "ติดตามสถานะออเดอร์",
+                  description: "อัปเดตสถานะออเดอร์แบบเรียลไทม์",
+                  icon: <Smartphone className="h-6 w-6" />,
+                },
+                {
+                  step: 4,
+                  title: "รายงานยอดขายทันที",
+                  description: "ดูยอดขายและสถิติการขายแบบเรียลไทม์",
+                  icon: <ShoppingCart className="h-6 w-6" />,
+                },
+              ].map((item, index) => (
                 <motion.div
-                  key={step}
+                  key={item.step}
                   className="flex"
                   custom={index}
                   variants={stepVariants}
@@ -125,83 +230,111 @@ const QrCodeFeature = () => {
                     className="mr-4 flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 border-2 border-blue-200"
                     whileHover={{ scale: 1.1, backgroundColor: "#93c5fd" }}
                   >
-                    <span className="font-bold text-blue-700">{step}</span>
+                    <span className="font-bold text-blue-700">{item.step}</span>
                   </motion.div>
                   <div>
-                    <h4 className="text-xl font-semibold text-blue-700">
-                      {step === 1 && "สแกน QR Code"}
-                      {step === 2 && "เลือกเมนูและสั่งอาหาร"}
-                      {step === 3 && "ชำระเงิน"}
-                      {step === 4 && "รับอาหาร"}
+                    <h4 className="text-xl font-semibold text-blue-700 flex items-center">
+                      {item.icon}
+                      <span className="ml-2">{item.title}</span>
                     </h4>
-                    <p className="text-slate-600">
-                      {step === 1 && "ลูกค้าสแกน QR Code ที่แสดงบนโต๊ะอาหาร"}
-                      {step === 2 && "เลือกดูเมนูอาหารที่น่าสนใจและเพิ่มลงตะกร้า"}
-                      {step === 3 && "ชำระเงินอย่างปลอดภัยด้วยหลากหลายช่องทาง"}
-                      {step === 4 && "คำสั่งซื้อจะปรากฏทันทีบนหน้าจอของร้านเพื่อเตรียมอาหาร"}
-                    </p>
+                    <p className="text-slate-600">{item.description}</p>
                   </div>
                 </motion.div>
               ))}
             </div>
-
-            <motion.button
-              className="mt-8 inline-flex items-center rounded-full bg-blue-600 px-8 py-4 font-semibold text-white transition shadow-lg"
-              whileHover={{ scale: 1.05, backgroundColor: "#2563eb" }}
-              whileTap={{ scale: 0.95 }}
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.5, type: "spring" }}
-              viewport={{ once: true }}
-            >
-              เรียนรู้เพิ่มเติม
-              <motion.div animate={{ x: [0, 5, 0] }} transition={{ repeat: Number.POSITIVE_INFINITY, duration: 1.5 }}>
-                <ArrowRight className="ml-2 h-5 w-5" />
-              </motion.div>
-            </motion.button>
           </motion.div>
 
-          {/* Visual content - will appear second on mobile */}
           <motion.div className="w-full lg:w-1/2" variants={itemVariants}>
             <motion.div
               className="rounded-2xl bg-white p-1 shadow-lg"
               whileHover={{ y: -5 }}
               transition={{ type: "spring", stiffness: 300 }}
             >
-              <div className="rounded-xl bg-gradient-to-br from-sky-100 to-blue-50 p-8">
-                <div className="flex items-center justify-center space-x-3 mb-6">
-                  <div className="relative">
-                    <QrCode className="h-12 w-12 text-blue-500 relative z-10" />
-                  </div>
-                  <h3 className="text-2xl font-bold text-blue-700">สแกนเพื่อสั่งอาหาร</h3>
-                </div>
+              <div className="rounded-xl bg-gradient-to-br from-sky-100 to-blue-50 p-6">
+                <div className="bg-white rounded-xl shadow-sm border border-gray-100">
+                  <div className="p-4 border-b border-gray-200">
+                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4">
+                      <h2 className="text-lg font-bold mb-2 sm:mb-0">จัดการออเดอร์</h2>
 
-                <div className="mt-8 grid grid-cols-1 gap-6 sm:grid-cols-2">
-                  {menuItems.map((item) => (
-                    <motion.div
-                      key={item.id}
-                      className="rounded-xl bg-white p-4 shadow-md"
-                      variants={cardVariants}
-                      whileHover="hover"
-                    >
-                      <div className="relative h-40 w-full mb-3 rounded-lg overflow-hidden">
-                        <Image src={item.image || "/placeholder.svg"} alt={item.name} fill className="object-cover" />
+                      <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-2 w-full sm:w-auto">
+                        <div className="relative">
+                          <Search className="h-4 w-4 absolute left-2 top-1/2 transform -translate-y-1/2 text-gray-400" />
+                          <input
+                            type="text"
+                            placeholder="ค้นหาโต๊ะ"
+                            className="pl-8 pr-3 py-1 border border-gray-300 rounded-md text-sm w-full sm:w-32"
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                          />
+                        </div>
+
+                        <div className="relative">
+                          <Filter className="h-4 w-4 absolute left-2 top-1/2 transform -translate-y-1/2 text-gray-400" />
+                          <select
+                            className="pl-8 pr-3 py-1 border border-gray-300 rounded-md text-sm w-full appearance-none"
+                            value={statusFilter}
+                            onChange={(e) => setStatusFilter(e.target.value)}
+                          >
+                            <option value="all">ทั้งหมด</option>
+                            <option value="pending">รอยืนยัน</option>
+                            <option value="cooking">กำลังปรุง</option>
+                            <option value="served">เสิร์ฟแล้ว</option>
+                          </select>
+                        </div>
                       </div>
-                      <h4 className="font-semibold text-lg text-blue-800">{item.name}</h4>
-                      <p className="text-sm text-slate-600 mt-1">{item.description}</p>
-                      <div className="mt-4 flex justify-between items-center">
-                        <div className="font-bold text-blue-700">{item.price}</div>
-                        <motion.button
-                          className="rounded-full bg-blue-500 p-2 cursor-pointer"
-                          whileHover={{ scale: 1.1 }}
-                          whileTap={{ scale: 0.95 }}
-                          onClick={() => addToCart(item.id)}
+                    </div>
+
+                    <div className="p-2 bg-blue-50 rounded-lg text-xs text-blue-800">
+                      <p>ระบบจัดการออเดอร์แบบเรียลไทม์ - ออเดอร์จาก QR Code จะปรากฏที่นี่ทันที</p>
+                    </div>
+                  </div>
+
+                  <div className="p-4">
+                    <div className="space-y-3">
+                      {mockOrders.map((order) => (
+                        <motion.div
+                          key={order.id}
+                          className="border border-gray-200 rounded-lg p-3 hover:shadow-md transition-shadow"
+                          whileHover={{ scale: 1.02 }}
                         >
-                          <ShoppingCart className="h-4 w-4 text-white" />
-                        </motion.button>
+                          <div className="flex justify-between items-start mb-2">
+                            <div>
+                              <div className="font-medium text-sm">โต๊ะ {order.table}</div>
+                              <div className="text-xs text-gray-500">#{order.id}</div>
+                            </div>
+                            <div className="text-right">
+                              <div className="text-sm font-medium">฿{order.totalAmount}</div>
+                              <div className="text-xs text-gray-500">{order.createdAt}</div>
+                            </div>
+                          </div>
+
+                          <div className="text-xs text-gray-600 mb-2">
+                            {order.items.map((item, index) => (
+                              <span key={index}>
+                                {item.name} x{item.quantity}
+                                {index < order.items.length - 1 ? ", " : ""}
+                              </span>
+                            ))}
+                          </div>
+
+                          <div className="flex justify-between items-center">
+                            {renderStatusBadge(order.status, order.queueNumber)}
+                            {renderActionButtons(order.status)}
+                          </div>
+                        </motion.div>
+                      ))}
+                    </div>
+
+                    {mockOrders.length === 0 && (
+                      <div className="flex flex-col items-center justify-center py-8 text-center">
+                        <div className="bg-gray-100 p-3 rounded-full mb-3">
+                          <FileText className="h-6 w-6 text-gray-400" />
+                        </div>
+                        <h3 className="text-sm font-medium text-gray-900 mb-1">ยังไม่มีออเดอร์</h3>
+                        <p className="text-xs text-gray-500">ออเดอร์ใหม่จะปรากฏที่นี่เมื่อลูกค้าสั่งอาหาร</p>
                       </div>
-                    </motion.div>
-                  ))}
+                    )}
+                  </div>
                 </div>
               </div>
             </motion.div>
@@ -212,4 +345,4 @@ const QrCodeFeature = () => {
   )
 }
 
-export default QrCodeFeature
+export default QrOrderFeature
