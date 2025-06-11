@@ -1,0 +1,42 @@
+[debug] [2025-06-11T19:34:19.744Z] ----------------------------------------------------------------------
+[debug] [2025-06-11T19:34:19.747Z] Command:       C:\Program Files\nodejs\node.exe C:\Users\windows11\AppData\Roaming\npm\node_modules\firebase-tools\lib\bin\firebase.js deploy --only hosting
+[debug] [2025-06-11T19:34:19.748Z] CLI Version:   14.6.0
+[debug] [2025-06-11T19:34:19.748Z] Platform:      win32
+[debug] [2025-06-11T19:34:19.748Z] Node Version:  v20.15.0
+[debug] [2025-06-11T19:34:19.748Z] Time:          Thu Jun 12 2025 02:34:19 GMT+0700 (เวลาอินโดจีน)
+[debug] [2025-06-11T19:34:19.749Z] ----------------------------------------------------------------------
+[debug] 
+[debug] [2025-06-11T19:34:19.752Z] >>> [apiv2][query] GET https://firebase-public.firebaseio.com/cli.json [none]
+[debug] [2025-06-11T19:34:20.344Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2025-06-11T19:34:20.345Z] > authorizing via signed-in user (cronusprecisiondev@gmail.com)
+[debug] [2025-06-11T19:34:20.345Z] [iam] checking project fastorder-8f143 for permissions ["firebase.projects.get","firebasehosting.sites.update"]
+[debug] [2025-06-11T19:34:20.346Z] Checked if tokens are valid: false, expires at: 1749656679961
+[debug] [2025-06-11T19:34:20.346Z] Checked if tokens are valid: false, expires at: 1749656679961
+[debug] [2025-06-11T19:34:20.347Z] > refreshing access token with scopes: []
+[debug] [2025-06-11T19:34:20.348Z] >>> [apiv2][query] POST https://www.googleapis.com/oauth2/v3/token [none]
+[debug] [2025-06-11T19:34:20.348Z] >>> [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2025-06-11T19:34:20.515Z] <<< [apiv2][status] POST https://www.googleapis.com/oauth2/v3/token 200
+[debug] [2025-06-11T19:34:20.515Z] <<< [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2025-06-11T19:34:20.525Z] >>> [apiv2][query] POST https://cloudresourcemanager.googleapis.com/v1/projects/fastorder-8f143:testIamPermissions [none]
+[debug] [2025-06-11T19:34:20.525Z] >>> [apiv2][(partial)header] POST https://cloudresourcemanager.googleapis.com/v1/projects/fastorder-8f143:testIamPermissions x-goog-quota-user=projects/fastorder-8f143
+[debug] [2025-06-11T19:34:20.525Z] >>> [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/fastorder-8f143:testIamPermissions {"permissions":["firebase.projects.get","firebasehosting.sites.update"]}
+[debug] [2025-06-11T19:34:20.885Z] <<< [apiv2][status] GET https://firebase-public.firebaseio.com/cli.json 200
+[debug] [2025-06-11T19:34:20.885Z] <<< [apiv2][body] GET https://firebase-public.firebaseio.com/cli.json {"cloudBuildErrorAfter":1594252800000,"cloudBuildWarnAfter":1590019200000,"defaultNode10After":1594252800000,"minVersion":"3.0.5","node8DeploysDisabledAfter":1613390400000,"node8RuntimeDisabledAfter":1615809600000,"node8WarnAfter":1600128000000}
+[debug] [2025-06-11T19:34:21.768Z] <<< [apiv2][status] POST https://cloudresourcemanager.googleapis.com/v1/projects/fastorder-8f143:testIamPermissions 200
+[debug] [2025-06-11T19:34:21.768Z] <<< [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/fastorder-8f143:testIamPermissions {}
+[debug] [2025-06-11T19:34:21.768Z] [iam] error while checking permissions, command may fail: Authorization failed. This account is missing the following required permissions on project fastorder-8f143:
+
+  firebase.projects.get
+  firebasehosting.sites.update
+[debug] [2025-06-11T19:34:21.769Z] Checked if tokens are valid: true, expires at: 1749674059515
+[debug] [2025-06-11T19:34:21.769Z] Checked if tokens are valid: true, expires at: 1749674059515
+[debug] [2025-06-11T19:34:21.769Z] >>> [apiv2][query] GET https://firebase.googleapis.com/v1beta1/projects/fastorder-8f143 [none]
+[debug] [2025-06-11T19:34:22.160Z] <<< [apiv2][status] GET https://firebase.googleapis.com/v1beta1/projects/fastorder-8f143 403
+[debug] [2025-06-11T19:34:22.160Z] <<< [apiv2][body] GET https://firebase.googleapis.com/v1beta1/projects/fastorder-8f143 {"error":{"code":403,"message":"The caller does not have permission","status":"PERMISSION_DENIED"}}
+[debug] [2025-06-11T19:34:22.160Z] Request to https://firebase.googleapis.com/v1beta1/projects/fastorder-8f143 had HTTP Error: 403, The caller does not have permission
+[debug] [2025-06-11T19:34:22.303Z] FirebaseError: Request to https://firebase.googleapis.com/v1beta1/projects/fastorder-8f143 had HTTP Error: 403, The caller does not have permission
+    at responseToError (C:\Users\windows11\AppData\Roaming\npm\node_modules\firebase-tools\lib\responseToError.js:52:12)
+    at RetryOperation._fn (C:\Users\windows11\AppData\Roaming\npm\node_modules\firebase-tools\lib\apiv2.js:312:77)
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+[error] 
+[error] Error: Failed to get Firebase project fastorder-8f143. Please make sure the project exists and your account has permission to access it.
