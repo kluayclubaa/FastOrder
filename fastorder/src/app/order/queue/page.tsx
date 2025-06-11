@@ -2,13 +2,15 @@
 
 import { useEffect } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
-import CustomerQueueStatus from "../../dashboard/customer-queue-status"
+import { CustomerQueueStatusPage } from "../../dashboard/customer-queue-status"
 
 export default function QueuePage() {
   const router = useRouter()
   const searchParams = useSearchParams()
+
   const restaurantId = searchParams.get("restaurantId")
   const orderId = searchParams.get("orderId")
+  const tableNumber = searchParams.get("table") ?? "1"
 
   useEffect(() => {
     if (!restaurantId || !orderId) {
@@ -27,5 +29,6 @@ export default function QueuePage() {
     )
   }
 
-  return <CustomerQueueStatus />
+  // ✅ ใช้ CustomerQueueStatusPage แทน CustomerQueueStatus
+  return <CustomerQueueStatusPage />
 }

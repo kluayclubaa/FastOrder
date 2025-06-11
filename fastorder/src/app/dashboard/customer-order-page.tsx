@@ -1,10 +1,17 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { ShoppingCart, Search, Plus, Minus, X, ChevronRight, Clock, Eye, Star } from "lucide-react"
+import { ShoppingCart, Search, Plus, Minus, X, ChevronRight, Clock, Eye, Star, User, Gift } from "lucide-react"
 import { db } from "@/lib/firebase"
 import { collection, query, where, getDocs, addDoc, serverTimestamp, doc, onSnapshot } from "firebase/firestore"
 import { useRouter, useSearchParams } from "next/navigation"
+import PaymentMethodModal from "./components/payment-method-modal"
+import { storage } from "@/lib/firebase"
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage"
+import generatePayload from "promptpay-qr"
+import MemberLoginModal from "./components/member-login-modal"
+import StaffNotificationHandler from "./components/staff-notification-handler"
+import CustomerNotificationListener from "./components/customer-notification-listener"
 
 type MenuOption = {
   id: string
@@ -20,6 +27,7 @@ type MenuItem = {
   category: string
   isAvailable: boolean
   isRecommended: boolean
+  recommendedTime?: "all" | "morning" | "afternoon" | "evening"
   imageUrl?: string
   options?: MenuOption[]
 }
@@ -30,7 +38,32 @@ type CartItem = MenuItem & {
   specialInstructions: string
 }
 
-export default function CustomerOrderPage() {
+type Member = {
+  id: string
+  name: string
+  phone: string
+  email: string
+  points: number
+  tier: string
+  joinDate: any
+  totalSpent: number
+}
+
+type Promotion = {
+  id: string
+  title: string
+  description: string
+  type: "discount" | "points_multiplier" | "free_item"
+  value: number
+  minPoints?: number
+  minSpent?: number
+  timeOfDay: "all" | "morning" | "afternoon" | "evening"
+  validFrom?: any
+  validTo?: any
+  isActive: boolean
+}
+
+export default function CustomerOrderPageFixed() {
   const [menuItems, setMenuItems] = useState<MenuItem[]>([])
   const [filteredItems, setFilteredItems] = useState<MenuItem[]>([])
   const [categories, setCategories] = useState<string[]>([])
@@ -47,24 +80,64 @@ export default function CustomerOrderPage() {
   const [currentOrderStatus, setCurrentOrderStatus] = useState<string | null>(null)
   const [itemQuantity, setItemQuantity] = useState(1)
   const [isNavigatingToQueue, setIsNavigatingToQueue] = useState(false)
+  const [showPaymentModal, setShowPaymentModal] = useState(false)
+  const [paymentMethod, setPaymentMethod] = useState<"scan" | "counter" | null>(null)
+  const [restaurantQRCode, setRestaurantQRCode] = useState<string>("")
+  const [isUploadingReceipt, setIsUploadingReceipt] = useState(false)
+  const [receiptUrl, setReceiptUrl] = useState<string | null>(null)
+  const [notification, setNotification] = useState({
+    show: false,
+    message: "",
+    type: "",
+  })
+  const [isSubmittingOrder, setIsSubmittingOrder] = useState(false)
+  const [restaurantPromptPayID, setRestaurantPromptPayID] = useState<string>("")
+
+  // New states for membership system
+  const [member, setMember] = useState<Member | null>(null)
+  const [showMemberModal, setShowMemberModal] = useState(false)
+  const [availablePromotions, setAvailablePromotions] = useState<Promotion[]>([])
+  const [appliedPromotion, setAppliedPromotion] = useState<Promotion | null>(null)
+  const [pointsToEarn, setPointsToEarn] = useState(0)
+
+  // Staff notification state
+  const [isStaffMode, setIsStaffMode] = useState(false)
 
   const router = useRouter()
   const searchParams = useSearchParams()
   const restaurantId = searchParams.get("id")
   const tableNumber = searchParams.get("table") || "1"
+  const staffMode = searchParams.get("staff") === "true"
+
+  // Check if this is staff mode
+  useEffect(() => {
+    setIsStaffMode(staffMode)
+  }, [staffMode])
+
+  const callStaff = async () => {
+    if (!restaurantId || !tableNumber) return
+    try {
+      await addDoc(collection(db, "users", restaurantId, "call_staff"), {
+        table: tableNumber,
+        createdAt: serverTimestamp(),
+        status: "pending",
+      })
+      showNotification("เรียกพนักงานแล้ว กรุณารอสักครู่", "success")
+    } catch (error) {
+      console.error("Error calling staff:", error)
+      showNotification("ไม่สามารถเรียกพนักงานได้", "error")
+    }
+  }
 
   // Prevent navigation to other pages (except queue)
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      // Don't prevent if navigating to queue
       if (isNavigatingToQueue) return
-
       e.preventDefault()
       e.returnValue = ""
     }
 
     const handlePopState = (e: PopStateEvent) => {
-      // Allow navigation to queue page only
       const currentPath = window.location.pathname
       if (!currentPath.includes("/order/queue") && !isNavigatingToQueue) {
         e.preventDefault()
@@ -72,11 +145,8 @@ export default function CustomerOrderPage() {
       }
     }
 
-    // Add event listeners
     window.addEventListener("beforeunload", handleBeforeUnload)
     window.addEventListener("popstate", handlePopState)
-
-    // Push initial state to prevent back navigation
     window.history.pushState(null, "", window.location.href)
 
     return () => {
@@ -93,7 +163,6 @@ export default function CustomerOrderPage() {
 
       if (savedOrderId) {
         setCurrentOrderId(savedOrderId)
-        // Set up real-time listener for order status
         setupOrderStatusListener(savedOrderId)
       }
     }
@@ -112,7 +181,6 @@ export default function CustomerOrderPage() {
           const orderData = doc.data()
           setCurrentOrderStatus(orderData.status)
 
-          // If order is completed or cancelled, remove from localStorage
           if (orderData.status === "completed" || orderData.status === "cancelled") {
             const storageKey = `order_${restaurantId}_${tableNumber}`
             localStorage.removeItem(storageKey)
@@ -120,7 +188,6 @@ export default function CustomerOrderPage() {
             setCurrentOrderStatus(null)
           }
         } else {
-          // Order doesn't exist, remove from localStorage
           const storageKey = `order_${restaurantId}_${tableNumber}`
           localStorage.removeItem(storageKey)
           setCurrentOrderId(null)
@@ -138,7 +205,6 @@ export default function CustomerOrderPage() {
   // Fetch restaurant info and menu
   useEffect(() => {
     if (!restaurantId) {
-      // Don't redirect, just show error
       setLoading(false)
       return
     }
@@ -151,12 +217,15 @@ export default function CustomerOrderPage() {
 
         if (userDoc.empty) {
           console.error("Restaurant not found")
+          showNotification("ไม่พบข้อมูลร้านอาหาร", "error")
           setLoading(false)
           return
         }
 
         const restaurantData = userDoc.docs[0].data()
         setRestaurantInfo(restaurantData)
+        setRestaurantQRCode(restaurantData.paymentQRCode || "")
+        setRestaurantPromptPayID(restaurantData.promptPayID || "")
 
         const menuQuery = query(collection(db, "users", restaurantId, "menu"), where("isAvailable", "==", true))
 
@@ -177,6 +246,7 @@ export default function CustomerOrderPage() {
         setLoading(false)
       } catch (error) {
         console.error("Error fetching restaurant data:", error)
+        showNotification("ไม่สามารถโหลดข้อมูลร้านอาหารได้", "error")
         setLoading(false)
       }
     }
@@ -209,6 +279,14 @@ export default function CustomerOrderPage() {
     const optionsPrice = item.selectedOptions.reduce((sum, option) => sum + option.price, 0) * item.quantity
     return total + itemBasePrice + optionsPrice
   }, 0)
+
+  // Show notification
+  const showNotification = (message: string, type: string) => {
+    setNotification({ show: true, message, type })
+    setTimeout(() => {
+      setNotification({ show: false, message: "", type: "" })
+    }, 3000)
+  }
 
   // Add item to cart - Always show customization modal
   const addToCart = (item: MenuItem) => {
@@ -247,21 +325,24 @@ export default function CustomerOrderPage() {
 
     setCustomizingItem(null)
     setItemQuantity(1)
+    showNotification(`เพิ่ม ${item.name} ลงตะกร้าแล้ว`, "success")
   }
 
   // Update item quantity in cart
-  const updateQuantity = (id: string, newQuantity: number) => {
+  const updateQuantity = (itemIndex: number, newQuantity: number) => {
     if (newQuantity < 1) {
-      removeFromCart(id)
+      removeFromCart(itemIndex)
       return
     }
 
-    setCart((prevCart) => prevCart.map((item) => (item.id === id ? { ...item, quantity: newQuantity } : item)))
+    setCart((prevCart) =>
+      prevCart.map((item, index) => (index === itemIndex ? { ...item, quantity: newQuantity } : item)),
+    )
   }
 
   // Remove item from cart
-  const removeFromCart = (id: string) => {
-    setCart((prevCart) => prevCart.filter((item) => item.id !== id))
+  const removeFromCart = (itemIndex: number) => {
+    setCart((prevCart) => prevCart.filter((_, index) => index !== itemIndex))
   }
 
   // Clear cart
@@ -269,13 +350,175 @@ export default function CustomerOrderPage() {
     setCart([])
   }
 
-  // Submit order
-  const submitOrder = async () => {
-    if (!restaurantId || cart.length === 0) return
+  // Handle receipt upload
+  const handleReceiptUpload = async (file: File) => {
+    if (!restaurantId) return
 
     try {
-      setLoading(true)
+      setIsUploadingReceipt(true)
+
+      const timestamp = Date.now()
+      const fileName = `receipt-${timestamp}-${file.name}`
+
+      const receiptRef = ref(storage, `receipts/${restaurantId}/${fileName}`)
+      await uploadBytes(receiptRef, file)
+      const url = await getDownloadURL(receiptRef)
+
+      setReceiptUrl(url)
+      showNotification("อัพโหลดหลักฐานการโอนเงินสำเร็จ", "success")
+
+      return url
+    } catch (error) {
+      console.error("Error uploading receipt:", error)
+      showNotification("ไม่สามารถอัพโหลดหลักฐานการโอนเงินได้", "error")
+      throw error
+    } finally {
+      setIsUploadingReceipt(false)
+    }
+  }
+
+  const generateDynamicQRCodeData = (amount: number) => {
+    if (!restaurantPromptPayID) return ""
+
+    try {
+      const payload = generatePayload(restaurantPromptPayID, { amount })
+      return payload
+    } catch (error) {
+      console.error("Error generating PromptPay QR code:", error)
+      return ""
+    }
+  }
+
+  // Handle payment method selection
+  const handleSelectPayment = async (method: "scan" | "counter") => {
+    setPaymentMethod(method)
+
+    if (method === "counter") {
+      await submitOrder(method)
+    } else if (method === "scan") {
+      if (receiptUrl) {
+        await submitOrder(method, receiptUrl)
+      } else {
+        showNotification("กรุณาอัพโหลดหลักฐานการโอนเงินก่อน", "error")
+      }
+    }
+  }
+
+  // Load available promotions
+  const loadAvailablePromotions = async () => {
+    if (!restaurantId) return
+
+    try {
+      const now = new Date()
+      const currentHour = now.getHours()
+      let timeOfDay: "morning" | "afternoon" | "evening" = "morning"
+
+      if (currentHour >= 12 && currentHour < 18) timeOfDay = "afternoon"
+      else if (currentHour >= 18) timeOfDay = "evening"
+
+      const promotionsQuery = query(
+        collection(db, "restaurants", restaurantId, "promotions"),
+        where("isActive", "==", true),
+      )
+
+      const snapshot = await getDocs(promotionsQuery)
+      const promotions: Promotion[] = []
+
+      snapshot.forEach((doc) => {
+        const promotion = {
+          id: doc.id,
+          ...doc.data(),
+        } as Promotion
+
+        if (promotion.timeOfDay === "all" || promotion.timeOfDay === timeOfDay) {
+          if (promotion.validFrom && promotion.validTo) {
+            const validFrom = promotion.validFrom.toDate()
+            const validTo = promotion.validTo.toDate()
+            if (now >= validFrom && now <= validTo) {
+              promotions.push(promotion)
+            }
+          } else {
+            promotions.push(promotion)
+          }
+        }
+      })
+
+      setAvailablePromotions(promotions)
+    } catch (error) {
+      console.error("Error loading promotions:", error)
+    }
+  }
+
+  // Apply promotion
+  const applyPromotion = (promotion: Promotion) => {
+    if (!member) {
+      showNotification("กรุณาเข้าสู่ระบบสมาชิกก่อน", "error")
+      return
+    }
+
+    if (promotion.minPoints && member.points < promotion.minPoints) {
+      showNotification(`ต้องมีแต้มอย่างน้อย ${promotion.minPoints} แต้ม`, "error")
+      return
+    }
+
+    if (promotion.minSpent && cartTotal < promotion.minSpent) {
+      showNotification(`ยอดซื้อต้องอย่างน้อย ฿${promotion.minSpent}`, "error")
+      return
+    }
+
+    setAppliedPromotion(promotion)
+    showNotification("ใช้โปรโมชั่นสำเร็จ", "success")
+  }
+
+  // Calculate final total after promotion
+  const getFinalTotal = () => {
+    let total = cartTotal
+
+    if (appliedPromotion) {
+      if (appliedPromotion.type === "discount") {
+        total = total * (1 - appliedPromotion.value / 100)
+      }
+    }
+
+    return total
+  }
+
+  // Calculate points from amount
+  const calculatePointsFromAmount = (amount: number): number => {
+    return Math.floor(amount / 20)
+  }
+
+  // Calculate points to earn
+  useEffect(() => {
+    const finalTotal = getFinalTotal()
+    let points = calculatePointsFromAmount(finalTotal)
+
+    if (appliedPromotion && appliedPromotion.type === "points_multiplier") {
+      points = points * appliedPromotion.value
+    }
+
+    setPointsToEarn(points)
+  }, [cartTotal, appliedPromotion])
+
+  // Load promotions on start
+  useEffect(() => {
+    if (restaurantId) {
+      loadAvailablePromotions()
+    }
+  }, [restaurantId])
+
+  // Submit order
+  const submitOrder = async (method: "scan" | "counter", uploadedReceiptUrl?: string) => {
+    if (!restaurantId || cart.length === 0) {
+      showNotification("ไม่สามารถส่งออเดอร์ได้ กรุณาลองใหม่อีกครั้ง", "error")
+      return
+    }
+
+    try {
+      setIsSubmittingOrder(true)
       setIsNavigatingToQueue(true)
+
+      const finalTotal = getFinalTotal()
 
       const orderData = {
         items: cart.map((item) => ({
@@ -288,11 +531,36 @@ export default function CustomerOrderPage() {
         })),
         table: tableNumber,
         status: "pending",
-        totalAmount: cartTotal,
+        totalAmount: finalTotal,
+        originalAmount: cartTotal,
+        paymentMethod: method,
+        receiptUrl: method === "scan" ? uploadedReceiptUrl : null,
+        memberId: member?.id || null,
+        memberPhone: member?.phone || null,
+        appliedPromotion: appliedPromotion
+          ? {
+              id: appliedPromotion.id,
+              title: appliedPromotion.title,
+              type: appliedPromotion.type,
+              value: appliedPromotion.value,
+            }
+          : null,
+        pointsEarned: member ? pointsToEarn : 0,
         createdAt: serverTimestamp(),
       }
 
       const orderRef = await addDoc(collection(db, "users", restaurantId, "orders"), orderData)
+
+      if (member && pointsToEarn > 0) {
+        localStorage.setItem(
+          `pending_points_${orderRef.id}`,
+          JSON.stringify({
+            memberId: member.id,
+            points: pointsToEarn,
+            orderId: orderRef.id,
+          }),
+        )
+      }
 
       const storageKey = `order_${restaurantId}_${tableNumber}`
       localStorage.setItem(storageKey, orderRef.id)
@@ -300,18 +568,25 @@ export default function CustomerOrderPage() {
       setCurrentOrderId(orderRef.id)
       setCurrentOrderStatus("pending")
 
-      // Set up real-time listener for the new order
       setupOrderStatusListener(orderRef.id)
 
-      const queueUrl = `/order/queue?restaurantId=${restaurantId}&orderId=${orderRef.id}`
-      router.push(queueUrl)
+      showNotification("ส่งออเดอร์สำเร็จ กำลังนำไปยังหน้าติดตามสถานะ", "success")
+
+      setTimeout(() => {
+        const queueUrl = `/order/queue?restaurantId=${restaurantId}&orderId=${orderRef.id}`
+        router.push(queueUrl)
+      }, 1000)
 
       clearCart()
+      setPaymentMethod(null)
+      setReceiptUrl(null)
+      setAppliedPromotion(null)
     } catch (error) {
       console.error("Error submitting order:", error)
+      showNotification("ไม่สามารถส่งออเดอร์ได้ กรุณาลองใหม่อีกครั้ง", "error")
       setIsNavigatingToQueue(false)
     } finally {
-      setLoading(false)
+      setIsSubmittingOrder(false)
     }
   }
 
@@ -342,6 +617,47 @@ export default function CustomerOrderPage() {
     }
   }
 
+  // Toggle option selection
+  const toggleOption = (option: MenuOption) => {
+    setSelectedOptions((prev) => {
+      const exists = prev.some((o) => o.id === option.id)
+      if (exists) {
+        return prev.filter((o) => o.id !== option.id)
+      } else {
+        return [...prev, option]
+      }
+    })
+  }
+
+  // Get recommended items based on current time
+  const getRecommendedItems = () => {
+    const now = new Date()
+    const currentHour = now.getHours()
+    let timeOfDay: "morning" | "afternoon" | "evening" = "morning"
+
+    if (currentHour >= 12 && currentHour < 18) timeOfDay = "afternoon"
+    else if (currentHour >= 18) timeOfDay = "evening"
+
+    return menuItems.filter(
+      (item) =>
+        item.isRecommended &&
+        (!item.recommendedTime || item.recommendedTime === "all" || item.recommendedTime === timeOfDay),
+    )
+  }
+
+  const recommendedItems = getRecommendedItems()
+
+  // Handle guest continue
+  const handleGuestContinue = () => {
+    setShowMemberModal(false)
+    showNotification("สั่งอาหารแบบไม่เป็นสมาชิก", "success")
+  }
+
+  // Handle staff notification received
+  const handleStaffNotificationReceived = (call: any) => {
+    showNotification(`มีการเรียกพนักงานจากโต๊ะ ${call.table}`, "info")
+  }
+
   // Render loading state
   if (loading) {
     return (
@@ -366,23 +682,20 @@ export default function CustomerOrderPage() {
     )
   }
 
-  const toggleOption = (option: MenuOption) => {
-    setSelectedOptions((prev) => {
-      const exists = prev.some((o) => o.id === option.id)
-      if (exists) {
-        return prev.filter((o) => o.id !== option.id)
-      } else {
-        return [...prev, option]
-      }
-    })
-  }
-
-  // Get recommended items
-  const recommendedItems = menuItems.filter((item) => item.isRecommended)
-
   return (
     <div className="min-h-screen bg-gray-100 pb-24">
-      {/* Header - KFC Style */}
+      {/* Staff Notification Handler - Only show in staff mode */}
+      {isStaffMode && restaurantId && (
+        <StaffNotificationHandler
+          restaurantId={restaurantId}
+          onNotificationReceived={handleStaffNotificationReceived}
+        />
+      )}
+
+      {/* Customer Notification Listener - Only show in customer mode */}
+      {!isStaffMode && <CustomerNotificationListener />}
+
+      {/* Header */}
       <div className="bg-blue-400 text-white shadow-lg">
         <div className="max-w-7xl mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
@@ -391,7 +704,10 @@ export default function CustomerOrderPage() {
                 <h1 className="text-2xl font-bold">
                   {restaurantInfo?.storeName || restaurantInfo?.restaurantName || "ร้านอาหาร"}
                 </h1>
-                <p className="text-blue-100">โต๊ะ {tableNumber}</p>
+                <p className="text-blue-100">
+                  โต๊ะ {tableNumber}{" "}
+                  {isStaffMode && <span className="bg-red-500 px-2 py-1 rounded text-xs ml-2">โหมดพนักงาน</span>}
+                </p>
               </div>
             </div>
 
@@ -412,19 +728,58 @@ export default function CustomerOrderPage() {
               </div>
             )}
 
-            {/* Cart Button */}
-            <div className="relative">
+            {/* Member Info - Desktop */}
+            {member && (
+              <div className="hidden md:block mr-4">
+                <div className="bg-white text-blue-600 px-4 py-2 rounded-lg border-2 border-blue-200">
+                  <div className="text-sm font-bold">{member.name}</div>
+                  <div className="text-xs">แต้มสะสม: {member.points.toLocaleString()}</div>
+                </div>
+              </div>
+            )}
+
+            {!member && !isStaffMode && (
               <button
-                className="p-3 rounded-full bg-white text-blue-600 relative shadow-lg hover:bg-blue-50 transition-colors"
-                onClick={() => setIsCartOpen(true)}
+                onClick={() => setShowMemberModal(true)}
+                className="hidden md:flex items-center px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors font-medium mr-4"
               >
-                <ShoppingCart className="h-7 w-7" />
-                {cart.length > 0 && (
-                  <span className="absolute -top-2 -right-2 bg-yellow-400 text-blue-800 text-sm font-bold px-2 py-1 rounded-full min-w-[24px] h-6 flex items-center justify-center">
-                    {cart.reduce((total, item) => total + item.quantity, 0)}
-                  </span>
-                )}
+                <User className="h-5 w-5 mr-2" />
+                เข้าสู่ระบบสมาชิก
               </button>
+            )}
+
+            <div className="flex items-center space-x-4">
+              {/* Call Staff Button - Desktop (only in customer mode) */}
+              {!isStaffMode && (
+                <button
+                  onClick={callStaff}
+                  className="hidden md:flex items-center px-4 py-3 bg-gradient-to-r from-orange-500 to-red-500 text-white rounded-xl font-bold hover:from-orange-600 hover:to-red-600 transition-all duration-300 transform hover:scale-105 shadow-lg hover:shadow-xl"
+                >
+                  <svg className="w-5 h-5 mr-2 animate-pulse" fill="currentColor" viewBox="0 0 20 20">
+                    <path
+                      fillRule="evenodd"
+                      d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z"
+                      clipRule="evenodd"
+                    />
+                  </svg>
+                  เรียกพนักงาน
+                </button>
+              )}
+
+              {/* Cart Button */}
+              <div className="relative">
+                <button
+                  className="p-3 rounded-full bg-white text-blue-600 relative shadow-lg hover:bg-blue-50 transition-colors"
+                  onClick={() => setIsCartOpen(true)}
+                >
+                  <ShoppingCart className="h-7 w-7" />
+                  {cart.length > 0 && (
+                    <span className="absolute -top-2 -right-2 bg-yellow-400 text-blue-800 text-sm font-bold px-2 py-1 rounded-full min-w-[24px] h-6 flex items-center justify-center">
+                      {cart.reduce((total, item) => total + item.quantity, 0)}
+                    </span>
+                  )}
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -455,6 +810,55 @@ export default function CustomerOrderPage() {
       )}
 
       <div className="max-w-7xl mx-auto px-4 py-6">
+        {/* Available Promotions */}
+        {availablePromotions.length > 0 && (
+          <div className="mb-8">
+            <h2 className="text-2xl font-bold text-purple-600 mb-4 flex items-center">
+              <Gift className="h-6 w-6 mr-2" />
+              โปรโมชั่นพิเศษ
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {availablePromotions.map((promotion) => (
+                <div
+                  key={promotion.id}
+                  className={`border-2 rounded-xl p-4 transition-all ${
+                    appliedPromotion?.id === promotion.id
+                      ? "border-purple-500 bg-purple-50"
+                      : "border-purple-200 hover:border-purple-400"
+                  }`}
+                >
+                  <div className="flex items-start justify-between mb-2">
+                    <div>
+                      <h3 className="font-bold text-purple-800">{promotion.title}</h3>
+                      <p className="text-sm text-purple-600">{promotion.description}</p>
+                    </div>
+                    <button
+                      onClick={() => applyPromotion(promotion)}
+                      disabled={!member || appliedPromotion?.id === promotion.id}
+                      className={`px-3 py-1 rounded-md text-sm font-bold ${
+                        appliedPromotion?.id === promotion.id
+                          ? "bg-purple-200 text-purple-800"
+                          : member
+                            ? "bg-purple-600 text-white hover:bg-purple-700"
+                            : "bg-gray-300 text-gray-500 cursor-not-allowed"
+                      }`}
+                    >
+                      {appliedPromotion?.id === promotion.id ? "ใช้แล้ว" : "ใช้โปรโมชั่น"}
+                    </button>
+                  </div>
+                  <div className="text-xs text-purple-500 space-y-1">
+                    {promotion.minPoints && promotion.minPoints > 0 && (
+                      <div>ต้องมีแต้มอย่างน้อย {promotion.minPoints} แต้ม</div>
+                    )}
+                    {promotion.minSpent && promotion.minSpent > 0 && <div>ยอดซื้อขั้นต่ำ ฿{promotion.minSpent}</div>}
+                    {!member && <div className="text-red-500">ต้องเป็นสมาชิกเท่านั้น</div>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Search Bar */}
         <div className="mb-6">
           <div className="relative max-w-md mx-auto">
@@ -469,7 +873,7 @@ export default function CustomerOrderPage() {
           </div>
         </div>
 
-        {/* Categories - KFC Style */}
+        {/* Categories */}
         <div className="mb-8">
           <div className="flex overflow-x-auto pb-4 gap-4 hide-scrollbar">
             <button
@@ -610,7 +1014,40 @@ export default function CustomerOrderPage() {
         </div>
       </div>
 
-      {/* Cart Drawer - KFC Style */}
+      {/* Member Login Button - Mobile (only in customer mode) */}
+      {!member && !isStaffMode && (
+        <div className="fixed left-6 bottom-24 z-40 md:hidden">
+          <button
+            onClick={() => setShowMemberModal(true)}
+            className="bg-green-500 text-white p-3 rounded-full shadow-2xl hover:bg-green-600 transition-all duration-300 transform hover:scale-110"
+          >
+            <User className="h-6 w-6" />
+          </button>
+        </div>
+      )}
+
+      {/* Call Staff Button - Mobile (only in customer mode) */}
+      {!isStaffMode && (
+        <div className="fixed right-6 bottom-32 z-40 md:hidden">
+          <button
+            onClick={callStaff}
+            className="group bg-gradient-to-r from-orange-500 to-red-500 text-white p-4 rounded-full shadow-2xl hover:from-orange-600 hover:to-red-600 transition-all duration-300 transform hover:scale-110 active:scale-95"
+          >
+            <div className="flex items-center">
+              <svg className="w-6 h-6 group-hover:animate-bounce" fill="currentColor" viewBox="0 0 20 20">
+                <path
+                  fillRule="evenodd"
+                  d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z"
+                  clipRule="evenodd"
+                />
+              </svg>
+              <span className="ml-2 font-bold text-sm whitespace-nowrap">เรียกพนักงาน</span>
+            </div>
+          </button>
+        </div>
+      )}
+
+      {/* Cart Drawer */}
       {isCartOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50">
           <div className="absolute right-0 top-0 bottom-0 w-full max-w-lg bg-white shadow-xl flex flex-col">
@@ -636,11 +1073,8 @@ export default function CustomerOrderPage() {
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {cart.map((item) => (
-                    <div
-                      key={`${item.id}-${JSON.stringify(item.selectedOptions)}-${item.specialInstructions}`}
-                      className="bg-gray-50 rounded-xl p-4"
-                    >
+                  {cart.map((item, index) => (
+                    <div key={index} className="bg-gray-50 rounded-xl p-4">
                       <div className="flex items-start justify-between mb-2">
                         <div className="flex-1">
                           <h3 className="font-bold text-lg">{item.name}</h3>
@@ -667,14 +1101,14 @@ export default function CustomerOrderPage() {
                       <div className="flex items-center justify-between">
                         <div className="flex items-center bg-white rounded-lg">
                           <button
-                            onClick={() => updateQuantity(item.id, item.quantity - 1)}
+                            onClick={() => updateQuantity(index, item.quantity - 1)}
                             className="p-2 rounded-l-lg bg-gray-200 hover:bg-gray-300"
                           >
                             <Minus className="h-5 w-5 text-gray-600" />
                           </button>
                           <span className="px-4 py-2 font-bold text-lg">{item.quantity}</span>
                           <button
-                            onClick={() => updateQuantity(item.id, item.quantity + 1)}
+                            onClick={() => updateQuantity(index, item.quantity + 1)}
                             className="p-2 rounded-r-lg bg-gray-200 hover:bg-gray-300"
                           >
                             <Plus className="h-5 w-5 text-gray-600" />
@@ -696,20 +1130,73 @@ export default function CustomerOrderPage() {
 
             {cart.length > 0 && (
               <div className="bg-gray-50 p-6 border-t">
-                <div className="flex justify-between items-center mb-4">
-                  <span className="text-xl font-bold">ยอดรวมทั้งสิ้น</span>
-                  <span className="text-2xl font-bold text-blue-600">฿{cartTotal.toFixed(2)}</span>
+                {/* Member Info in Cart */}
+                {member && (
+                  <div className="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="font-bold text-blue-800">{member.name}</div>
+                        <div className="text-sm text-blue-600">แต้มสะสม: {member.points.toLocaleString()}</div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-sm text-blue-600">จะได้รับ</div>
+                        <div className="font-bold text-blue-800">{pointsToEarn} แต้ม</div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Applied Promotion */}
+                {appliedPromotion && (
+                  <div className="mb-4 p-3 bg-purple-50 rounded-lg border border-purple-200">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="font-bold text-purple-800">{appliedPromotion.title}</div>
+                        <div className="text-sm text-purple-600">
+                          {appliedPromotion.type === "discount" && `ลด ${appliedPromotion.value}%`}
+                          {appliedPromotion.type === "points_multiplier" && `แต้มคูณ ${appliedPromotion.value}`}
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => setAppliedPromotion(null)}
+                        className="text-purple-600 hover:text-purple-800"
+                      >
+                        <X className="h-5 w-5" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Price Breakdown */}
+                <div className="space-y-2 mb-4">
+                  <div className="flex justify-between items-center">
+                    <span className="text-lg">ยอดรวม</span>
+                    <span className="text-lg">฿{cartTotal.toFixed(2)}</span>
+                  </div>
+                  {appliedPromotion && appliedPromotion.type === "discount" && (
+                    <div className="flex justify-between items-center text-purple-600">
+                      <span>ส่วนลด({appliedPromotion.value}%)</span>
+                      <span>-฿{((cartTotal * appliedPromotion.value) / 100).toFixed(2)}</span>
+                    </div>
+                  )}
+                  <div className="border-t pt-2">
+                    <div className="flex justify-between items-center">
+                      <span className="text-xl font-bold">ยอดรวมทั้งสิ้น</span>
+                      <span className="text-2xl font-bold text-blue-600">฿{getFinalTotal().toFixed(2)}</span>
+                    </div>
+                  </div>
                 </div>
+
                 <button
-                  onClick={submitOrder}
+                  onClick={() => setShowPaymentModal(true)}
                   className="w-full py-4 bg-blue-400 text-white rounded-xl text-xl font-bold hover:bg-blue-500 flex items-center justify-center shadow-lg"
-                  disabled={loading}
+                  disabled={isSubmittingOrder}
                 >
-                  {loading ? (
+                  {isSubmittingOrder ? (
                     <div className="animate-spin rounded-full h-6 w-6 border-t-2 border-b-2 border-white"></div>
                   ) : (
                     <>
-                      ยืนยันการสั่งอาหาร <ChevronRight className="h-6 w-6 ml-2" />
+                      เลือกวิธีการชำระเงิน <ChevronRight className="h-6 w-6 ml-2" />
                     </>
                   )}
                 </button>
@@ -719,7 +1206,7 @@ export default function CustomerOrderPage() {
         </div>
       )}
 
-      {/* Item Customization Modal - Enhanced */}
+      {/* Item Customization Modal */}
       {customizingItem && (
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-md w-full max-h-[90vh] overflow-y-auto">
@@ -848,11 +1335,91 @@ export default function CustomerOrderPage() {
               {cart.reduce((total, item) => total + item.quantity, 0)}
             </span>
             <div className="absolute -bottom-12 right-0 bg-white text-blue-600 px-3 py-1 rounded-lg shadow-lg font-bold text-sm whitespace-nowrap">
-              ฿{cartTotal.toFixed(2)}
+              ฿{getFinalTotal().toFixed(2)}
             </div>
           </button>
         </div>
       )}
+
+      {/* Member Login Modal */}
+      <MemberLoginModal
+        isOpen={showMemberModal}
+        onClose={() => setShowMemberModal(false)}
+        onMemberLogin={(memberData) => {
+          setMember(memberData)
+          setShowMemberModal(false)
+          showNotification(`ยินดีต้อนรับ ${memberData.name}`, "success")
+        }}
+        onGuestContinue={handleGuestContinue}
+        restaurantId={restaurantId || ""}
+      />
+
+      {/* Payment Method Modal */}
+      <PaymentMethodModal
+        isOpen={showPaymentModal}
+        onClose={() => setShowPaymentModal(false)}
+        onSelectPayment={handleSelectPayment}
+        restaurantPromptPayID={restaurantPromptPayID}
+        dynamicQRCodeData={generateDynamicQRCodeData(getFinalTotal())}
+        totalAmount={getFinalTotal()}
+        onReceiptUpload={handleReceiptUpload}
+        isUploading={isUploadingReceipt}
+      />
+
+      {/* Notification */}
+      {notification.show && (
+        <div
+          className={`fixed bottom-4 left-4 px-6 py-3 rounded-lg shadow-lg z-50 ${
+            notification.type === "success"
+              ? "bg-green-500"
+              : notification.type === "info"
+                ? "bg-blue-500"
+                : "bg-red-500"
+          } text-white max-w-sm`}
+        >
+          {notification.message}
+        </div>
+      )}
+
+      {/* Loading Overlay */}
+      {isSubmittingOrder && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center">
+          <div className="bg-white rounded-lg p-8 text-center">
+            <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-blue-500 mx-auto mb-4"></div>
+            <h3 className="text-lg font-bold mb-2">กำลังส่งออเดอร์...</h3>
+            <p className="text-gray-600">กรุณารอสักครู่</p>
+          </div>
+        </div>
+      )}
+
+      <style jsx>{`
+        .hide-scrollbar {
+          -ms-overflow-style: none;
+          scrollbar-width: none;
+        }
+        .hide-scrollbar::-webkit-scrollbar {
+          display: none;
+        }
+        .line-clamp-2 {
+          display: -webkit-box;
+          -webkit-line-clamp: 2;
+          -webkit-box-orient: vertical;
+          overflow: hidden;
+        }
+        @keyframes slide-in-left {
+          from {
+            transform: translateX(-100%);
+            opacity: 0;
+          }
+          to {
+            transform: translateX(0);
+            opacity: 1;
+          }
+        }
+        .animate-slide-in-left {
+          animation: slide-in-left 0.3s ease-out;
+        }
+      `}</style>
     </div>
   )
 }

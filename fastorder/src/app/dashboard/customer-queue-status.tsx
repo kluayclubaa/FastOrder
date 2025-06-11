@@ -1,24 +1,148 @@
 "use client"
 
+import type React from "react"
 import { useState, useEffect } from "react"
-import { Clock, CheckCircle, Utensils, ArrowLeft, X, Star, Receipt, ChevronDown, ChevronUp } from "lucide-react"
+import { Clock, CheckCircle, Utensils, ArrowLeft, X, Receipt, ChevronDown, ChevronUp, User, Gift } from 'lucide-react'
 import { db } from "@/lib/firebase"
 import { doc, onSnapshot, collection, query, where, getDocs } from "firebase/firestore"
 import { useRouter, useSearchParams } from "next/navigation"
+
+interface CustomerQueueStatusProps {
+  tableNumber: string
+}
+
+// Add notification permission request function
+const requestNotificationPermission = async () => {
+  if ("Notification" in window) {
+    const permission = await Notification.requestPermission()
+    return permission === "granted"
+  }
+  return false
+}
+
+// Add function to show browser notification
+const showBrowserNotification = (title: string, body: string, icon?: string) => {
+  if ("Notification" in window && Notification.permission === "granted") {
+    const notification = new Notification(title, {
+      body,
+      icon: icon || "/favicon.ico",
+      badge: "/favicon.ico",
+      tag: "queue-status",
+      requireInteraction: true,
+    })
+
+    notification.onclick = () => {
+      window.focus()
+      notification.close()
+    }
+
+    // Auto close after 15 seconds for important notifications
+    setTimeout(() => {
+      notification.close()
+    }, 15000)
+  }
+}
 
 type Order = {
   id: string
   table: string
   status: string
   totalAmount: number
+  originalAmount?: number
   items: any[]
   createdAt: any
   updatedAt: any
   queueNumber?: number
   userId?: string
+  memberId?: string
+  memberPhone?: string
+  pointsEarned?: number
+  appliedPromotion?: any
 }
 
-export default function CustomerQueueStatus() {
+const CustomerQueueStatus: React.FC<CustomerQueueStatusProps> = ({ tableNumber }) => {
+  const [staffNotifications, setStaffNotifications] = useState<any[]>([])
+
+  // ฟังก์ชันสำหรับแสดง Browser Notification
+  const showBrowserNotificationStaff = (title: string, body: string) => {
+    if (typeof window !== "undefined" && "Notification" in window) {
+      if (Notification.permission === "granted") {
+        new Notification(title, {
+          body: body,
+          icon: "/favicon.ico", // Replace with your notification icon path
+        })
+      } else if (Notification.permission !== "denied") {
+        Notification.requestPermission().then((permission) => {
+          if (permission === "granted") {
+            new Notification(title, {
+              body: body,
+              icon: "/favicon.ico", // Replace with your notification icon path
+            })
+          }
+        })
+      }
+    }
+  }
+
+  // ฟังก์ชันสำหรับตรวจสอบการแจ้งเตือนจากพนักงาน
+  useEffect(() => {
+    const checkStaffNotifications = () => {
+      const notifications = JSON.parse(localStorage.getItem("customer_notifications") || "[]")
+      const newNotifications = notifications.filter(
+        (notif: any) =>
+          notif.table === tableNumber && notif.type === "staff_confirmed" && Date.now() - notif.timestamp < 300000, // แสดงแจ้งเตือนใน 5 นาที
+      )
+
+      if (newNotifications.length > 0) {
+        setStaffNotifications(newNotifications)
+
+        // แสดงการแจ้งเตือนในเบราว์เซอร์
+        newNotifications.forEach((notif: any) => {
+          showBrowserNotificationStaff("✅ พนักงานรับเรื่องแล้ว", notif.message)
+        })
+
+        // ลบการแจ้งเตือนที่แสดงแล้ว
+        setTimeout(() => {
+          const remainingNotifications = notifications.filter(
+            (notif: any) => !newNotifications.some((newNotif: any) => newNotif.timestamp === notif.timestamp),
+          )
+          localStorage.setItem("customer_notifications", JSON.stringify(remainingNotifications))
+          setStaffNotifications([])
+        }, 5000)
+      }
+    }
+
+    // ตรวจสอบการแจ้งเตือนทุก 2 วินาที
+    const interval = setInterval(checkStaffNotifications, 2000)
+
+    return () => clearInterval(interval)
+  }, [tableNumber])
+
+  return (
+    <div>
+      {/* Staff Notifications */}
+      {staffNotifications.length > 0 && (
+        <div className="fixed top-20 left-1/2 transform -translate-x-1/2 z-50 max-w-md w-full mx-4">
+          {staffNotifications.map((notification, index) => (
+            <div key={index} className="bg-green-500 text-white p-4 rounded-lg shadow-lg mb-2 animate-bounce">
+              <div className="flex items-center">
+                <div className="text-2xl mr-3">✅</div>
+                <div>
+                  <div className="font-bold">พนักงานรับเรื่องแล้ว!</div>
+                  <div className="text-sm">{notification.message}</div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+export default CustomerQueueStatus
+
+export function CustomerQueueStatusPage() {
   const [orders, setOrders] = useState<Order[]>([])
   const [currentOrder, setCurrentOrder] = useState<Order | null>(null)
   const [loading, setLoading] = useState(true)
@@ -38,6 +162,10 @@ export default function CustomerQueueStatus() {
     order: null,
     type: "completed",
   })
+
+  const [previousStatus, setPreviousStatus] = useState<string | null>(null)
+  const [previousQueueNumber, setPreviousQueueNumber] = useState<number | null>(null)
+  const [notificationPermission, setNotificationPermission] = useState(false)
 
   const restaurantId = searchParams.get("restaurantId")
   const orderId = searchParams.get("orderId")
@@ -126,6 +254,57 @@ export default function CustomerQueueStatus() {
 
           setOrders(ordersList)
 
+          // Check for status changes and queue position for notifications
+          if (foundCurrentOrder || (ordersList.length > 0 && !foundCurrentOrder)) {
+            const currentOrderForNotification = foundCurrentOrder || ordersList[0]
+
+            // Check for status changes
+            if (previousStatus && previousStatus !== currentOrderForNotification.status) {
+              let notificationTitle = ""
+              let notificationBody = ""
+
+              switch (currentOrderForNotification.status) {
+                case "cooking":
+                  notificationTitle = "👨‍🍳 เริ่มปรุงอาหารแล้ว!"
+                  notificationBody = `ออเดอร์ของคุณกำลังถูกเตรียม${currentOrderForNotification.queueNumber ? ` (คิวที่ ${currentOrderForNotification.queueNumber})` : ""}`
+                  break
+                case "served":
+                  notificationTitle = "🍽️ อาหารพร้อมเสิร์ฟ!"
+                  notificationBody = "อาหารของคุณพร้อมแล้ว กรุณามารับที่เคาน์เตอร์"
+                  break
+                case "completed":
+                  notificationTitle = "✅ เสร็จสิ้น!"
+                  notificationBody = `ขอบคุณที่ใช้บริการ${currentOrderForNotification.pointsEarned ? ` คุณได้รับ ${currentOrderForNotification.pointsEarned} แต้ม` : ""}`
+                  break
+                case "cancelled":
+                  notificationTitle = "❌ ออเดอร์ถูกยกเลิก"
+                  notificationBody = "ออเดอร์ของคุณถูกยกเลิก กรุณาติดต่อพนักงาน"
+                  break
+              }
+
+              if (notificationTitle) {
+                showBrowserNotification(notificationTitle, notificationBody)
+              }
+            }
+
+            // Check for queue position changes (notify when reaching position 3 or less)
+            if (currentOrderForNotification.status === "cooking" && currentOrderForNotification.queueNumber) {
+              const currentQueue = currentOrderForNotification.queueNumber
+
+              if (previousQueueNumber && previousQueueNumber !== currentQueue) {
+                if (currentQueue <= 3 && previousQueueNumber > 3) {
+                  showBrowserNotification("⏰ เกือบถึงคิวแล้ว!", `คุณอยู่ในคิวที่ ${currentQueue} อาหารจะเสร็จเร็วๆ นี้`)
+                } else if (currentQueue === 1) {
+                  showBrowserNotification("🔥 ถึงคิวแล้ว!", "คุณอยู่ในคิวแรก อาหารกำลังจะเสร็จแล้ว!")
+                }
+              }
+
+              setPreviousQueueNumber(currentQueue)
+            }
+
+            setPreviousStatus(currentOrderForNotification.status)
+          }
+
           // If we have a specific orderId, set it as current order
           if (foundCurrentOrder) {
             setCurrentOrder(foundCurrentOrder)
@@ -186,6 +365,15 @@ export default function CustomerQueueStatus() {
     })
   }, [orders, showCompletionModal.show])
 
+  // Request notification permission on mount
+  useEffect(() => {
+    const initNotifications = async () => {
+      const granted = await requestNotificationPermission()
+      setNotificationPermission(granted)
+    }
+    initNotifications()
+  }, [])
+
   const getStatusInfo = (status: string) => {
     switch (status) {
       case "pending":
@@ -212,7 +400,7 @@ export default function CustomerQueueStatus() {
         }
       case "served":
         return {
-          title: "เสิร์ฟแล��ว",
+          title: "เสิร์ฟแล้ว",
           description: "อาหารของคุณพร้อมเสิร์ฟแล้ว",
           color: "green",
           bgColor: "bg-green-50",
@@ -280,6 +468,7 @@ ${restaurantName}
 โต๊ะ: ${order.table}
 ออเดอร์: #${order.id.slice(-6).toUpperCase()}
 ${userId ? `ลูกค้า: ${userId.slice(-6).toUpperCase()}` : ""}
+${order.memberId ? `สมาชิก: ${order.memberPhone || "ไม่ระบุ"}` : ""}
 =================================
 
 รายการอาหาร:
@@ -303,9 +492,28 @@ ${userId ? `ลูกค้า: ${userId.slice(-6).toUpperCase()}` : ""}
       content += `\n   รวม: ฿${itemTotal.toFixed(2)}\n\n`
     })
 
-    content += `=================================
-ยอดรวมทั้งสิ้น: ฿${order.totalAmount?.toFixed(2) || "0.00"}
-=================================
+    content += `=================================`
+
+    // Show original amount if promotion was applied
+    if (order.originalAmount && order.originalAmount !== order.totalAmount) {
+      content += `\nราคาเดิม: ฿${order.originalAmount.toFixed(2)}`
+      if (order.appliedPromotion) {
+        content += `\nโปรโมชั่น: ${order.appliedPromotion.title}`
+        if (order.appliedPromotion.type === "discount") {
+          content += ` (ลด ${order.appliedPromotion.value}%)`
+        }
+      }
+    }
+
+    content += `\nยอดรวมทั้งสิ้น: ฿${order.totalAmount?.toFixed(2) || "0.00"}`
+
+    // Show points earned for members
+    if (order.memberId && order.pointsEarned && order.status === "completed") {
+      content += `\n=================================`
+      content += `\nแต้มที่ได้รับ: ${order.pointsEarned} แต้ม`
+    }
+
+    content += `\n=================================
 
 ขอบคุณที่ใช้บริการ
 `
@@ -405,6 +613,9 @@ ${userId ? `ลูกค้า: ${userId.slice(-6).toUpperCase()}` : ""}
 
   return (
     <div className="min-h-screen bg-gray-100">
+      {/* Include staff notification component */}
+      <CustomerQueueStatus tableNumber={tableNumber || orders[0]?.table || "1"} />
+
       {/* Header - KFC Style */}
       <div className="bg-blue-400 text-white shadow-lg">
         <div className="max-w-md mx-auto px-4 py-4">
@@ -412,6 +623,23 @@ ${userId ? `ลูกค้า: ${userId.slice(-6).toUpperCase()}` : ""}
             <button onClick={goBackToOrder} className="mr-3 p-2 rounded-full hover:bg-blue-500">
               <ArrowLeft className="h-6 w-6" />
             </button>
+            {/* Notification Status Indicator */}
+            {notificationPermission && (
+              <div className="mr-2 px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full flex items-center">
+                🔔 แจ้งเตือนเปิด
+              </div>
+            )}
+            {!notificationPermission && (
+              <button
+                onClick={async () => {
+                  const granted = await requestNotificationPermission()
+                  setNotificationPermission(granted)
+                }}
+                className="mr-2 px-2 py-1 bg-yellow-100 text-yellow-800 text-xs rounded-full hover:bg-yellow-200"
+              >
+                🔕 เปิดแจ้งเตือน
+              </button>
+            )}
             <div>
               <h1 className="text-xl font-bold">สถานะออเดอร์</h1>
               <p className="text-blue-100">
@@ -450,8 +678,25 @@ ${userId ? `ลูกค้า: ${userId.slice(-6).toUpperCase()}` : ""}
                         <div className="mt-4 p-3 bg-white rounded-xl border-2 border-blue-200 shadow-lg">
                           <p className="text-sm text-gray-600 mb-1">ออเดอร์นี้อยู่ในคิว</p>
                           <div className="flex items-center justify-center">
-                         
                             <p className="text-2xl font-bold text-blue-600">#{currentOrder.queueNumber}</p>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Member Points Info */}
+                      {currentOrder.memberId && currentOrder.pointsEarned && (
+                        <div className="mt-4 p-3 bg-white rounded-xl border-2 border-green-200 shadow-lg">
+                          <div className="flex items-center justify-center mb-2">
+                            <User className="h-4 w-4 text-green-600 mr-2" />
+                            <span className="text-sm font-medium text-green-600">สมาชิก</span>
+                          </div>
+                          <div className="flex items-center justify-center">
+                            <Gift className="h-4 w-4 text-blue-600 mr-2" />
+                            <span className="text-sm text-gray-600">
+                              {currentOrder.status === "completed"
+                                ? `ได้รับ ${currentOrder.pointsEarned} แต้ม`
+                                : `จะได้รับ ${currentOrder.pointsEarned} แต้ม`}
+                            </span>
                           </div>
                         </div>
                       )}
@@ -461,9 +706,21 @@ ${userId ? `ลูกค้า: ${userId.slice(-6).toUpperCase()}` : ""}
                     <div className="p-4 bg-gray-50">
                       <div className="flex justify-between items-center">
                         <span className="text-sm text-gray-600">ออเดอร์ #{currentOrder.id.slice(-6).toUpperCase()}</span>
-                        <span className="text-lg font-bold text-blue-600">
-                          ฿{currentOrder.totalAmount?.toFixed(2) || "0.00"}
-                        </span>
+                        <div className="text-right">
+                          <div className="text-lg font-bold text-blue-600">
+                            ฿{currentOrder.totalAmount?.toFixed(2) || "0.00"}
+                          </div>
+                          {currentOrder.originalAmount && currentOrder.originalAmount !== currentOrder.totalAmount && (
+                            <div className="text-xs text-gray-500 line-through">
+                              ฿{currentOrder.originalAmount.toFixed(2)}
+                            </div>
+                          )}
+                          {currentOrder.appliedPromotion && (
+                            <div className="text-xs text-purple-600">
+                              {currentOrder.appliedPromotion.title}
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </>
@@ -519,6 +776,12 @@ ${userId ? `ลูกค้า: ${userId.slice(-6).toUpperCase()}` : ""}
                                 ปัจจุบัน
                               </span>
                             )}
+                            {order.memberId && (
+                              <span className="ml-2 px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full flex items-center">
+                                <User className="h-3 w-3 mr-1" />
+                                สมาชิก
+                              </span>
+                            )}
                           </div>
                           <div className="flex items-center mt-1">
                             <span className={`px-2 py-1 rounded-full text-xs font-medium ${statusInfo.badgeColor}`}>
@@ -535,6 +798,11 @@ ${userId ? `ลูกค้า: ${userId.slice(-6).toUpperCase()}` : ""}
                       <div className="flex items-center">
                         <div className="text-right mr-3">
                           <div className="font-bold text-blue-600">฿{order.totalAmount?.toFixed(2) || "0.00"}</div>
+                          {order.originalAmount && order.originalAmount !== order.totalAmount && (
+                            <div className="text-xs text-gray-500 line-through">
+                              ฿{order.originalAmount.toFixed(2)}
+                            </div>
+                          )}
                           <div className="text-xs text-gray-500">
                             {order.createdAt?.toDate
                               ? new Date(order.createdAt.toDate()).toLocaleTimeString("th-TH", {
@@ -577,6 +845,15 @@ ${userId ? `ลูกค้า: ${userId.slice(-6).toUpperCase()}` : ""}
                             <span className="text-gray-600 font-medium">จำนวนรายการ</span>
                             <span className="font-bold">{order.items?.length || 0} รายการ</span>
                           </div>
+                          {order.memberId && order.pointsEarned && (
+                            <div className="flex justify-between items-center p-3 bg-green-50 rounded-xl">
+                              <span className="text-green-600 font-medium flex items-center">
+                                <Gift className="h-4 w-4 mr-1" />
+                                แต้มที่จะได้รับ
+                              </span>
+                              <span className="font-bold text-green-600">{order.pointsEarned} แต้ม</span>
+                            </div>
+                          )}
                         </div>
 
                         {/* Order Items */}
@@ -612,6 +889,26 @@ ${userId ? `ลูกค้า: ${userId.slice(-6).toUpperCase()}` : ""}
                             ))}
                           </div>
                         </div>
+
+                        {/* Promotion Info */}
+                        {order.appliedPromotion && (
+                          <div className="mb-4 p-3 bg-purple-50 rounded-xl border border-purple-200">
+                            <div className="flex items-center">
+                              <Gift className="h-4 w-4 text-purple-600 mr-2" />
+                              <span className="font-medium text-purple-800">โปรโมชั่น: {order.appliedPromotion.title}</span>
+                            </div>
+                            {order.appliedPromotion.type === "discount" && (
+                              <div className="text-sm text-purple-600 mt-1">
+                                ลด {order.appliedPromotion.value}%
+                              </div>
+                            )}
+                            {order.appliedPromotion.type === "points_multiplier" && (
+                              <div className="text-sm text-purple-600 mt-1">
+                                แต้มคูณ {order.appliedPromotion.value}
+                              </div>
+                            )}
+                          </div>
+                        )}
 
                         {/* Action Buttons */}
                         <div className="flex gap-2">
@@ -735,11 +1032,25 @@ ${userId ? `ลูกค้า: ${userId.slice(-6).toUpperCase()}` : ""}
                 {showCompletionModal.type === "completed" ? "ออเดอร์เสร็จสิ้น!" : "ออเดอร์ถูกยกเลิก"}
               </h3>
 
-              <p className="text-gray-600 mb-6">
+              <p className="text-gray-600 mb-4">
                 {showCompletionModal.type === "completed"
                   ? "ขอบคุณที่ใช้บริการ คุณสามารถดาวน์โหลดใบเสร็จได้"
                   : "ออเดอร์ของคุณถูกยกเลิกแล้ว"}
               </p>
+
+              {/* Show points earned for completed member orders */}
+              {showCompletionModal.type === "completed" &&
+               showCompletionModal.order.memberId &&
+               showCompletionModal.order.pointsEarned && (
+                <div className="mb-4 p-3 bg-green-50 rounded-lg border border-green-200">
+                  <div className="flex items-center justify-center">
+                    <Gift className="h-5 w-5 text-green-600 mr-2" />
+                    <span className="font-medium text-green-800">
+                      คุณได้รับ {showCompletionModal.order.pointsEarned} แต้ม!
+                    </span>
+                  </div>
+                </div>
+              )}
 
               <div className="space-y-3">
                 {showCompletionModal.type === "completed" && (

@@ -3,7 +3,7 @@
 import type React from "react"
 
 import { useState, useEffect } from "react"
-import { Plus, Save, X, Loader, Search, Filter, ArrowUpDown } from "lucide-react"
+import { Plus, Save, X, Loader, Search, Filter, ArrowUpDown, Star } from "lucide-react"
 import { auth, db } from "@/lib/firebase"
 import {
   collection,
@@ -20,7 +20,6 @@ import {
 } from "firebase/firestore"
 import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage"
 import { onAuthStateChanged } from "firebase/auth"
-import { useRouter } from "next/navigation"
 
 type MenuItem = {
   id: string
@@ -30,6 +29,7 @@ type MenuItem = {
   category: string
   isAvailable: boolean
   isRecommended: boolean
+  recommendedTime?: "all" | "morning" | "afternoon" | "evening"
   createdAt: any
   imageUrl?: string
   options?: MenuOption[]
@@ -41,17 +41,17 @@ type MenuOption = {
   price: number
 }
 
-type UserProfile = {
-  storeName: string
-  restaurantName: string
-  phone: string
-  phoneNumber: string
+interface MenuManagementIntegrationProps {
+  restaurantId?: string
+  onMenuUpdate?: (items: MenuItem[]) => void
 }
 
-export default function MenuManagement() {
+export default function MenuManagementIntegration({
+  restaurantId: propRestaurantId,
+  onMenuUpdate,
+}: MenuManagementIntegrationProps) {
   const [menuItems, setMenuItems] = useState<MenuItem[]>([])
   const [loading, setLoading] = useState(false)
-  const [userProfile, setUserProfile] = useState<UserProfile | null>(null)
   const [userId, setUserId] = useState<string | null>(null)
   const [notification, setNotification] = useState({ show: false, message: "", type: "" })
   const [searchTerm, setSearchTerm] = useState("")
@@ -68,47 +68,30 @@ export default function MenuManagement() {
     category: "",
     isAvailable: true,
     isRecommended: false,
+    recommendedTime: "all" as "all" | "morning" | "afternoon" | "evening",
     imageUrl: "",
     imageFile: null as File | null,
     options: [] as MenuOption[],
   })
-  const router = useRouter()
   const [newOption, setNewOption] = useState({ name: "", price: "" })
+
+  // Use provided restaurantId or get from auth
+  const restaurantId = propRestaurantId || userId
 
   // Check authentication state
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      if (user) {
-        setUserId(user.uid)
-        fetchUserProfile(user.uid)
-        setupRealTimeMenuListener(user.uid)
-      } else {
-        router.push("/login")
-      }
-    })
-
-    return () => unsubscribe()
-  }, [router])
-
-  // Fetch user profile data
-  const fetchUserProfile = async (uid: string) => {
-    try {
-      const userDoc = await getDocs(query(collection(db, "users"), where("__name__", "==", uid)))
-
-      if (!userDoc.empty) {
-        const userData = userDoc.docs[0].data() as UserProfile
-        setUserProfile({
-          storeName: userData.storeName || "",
-          restaurantName: userData.restaurantName || "",
-          phone: userData.phone || "",
-          phoneNumber: userData.phoneNumber || "",
-        })
-      }
-    } catch (error) {
-      console.error("Error fetching user profile:", error)
-      showNotification("ไม่สามารถโหลดข้อมูลโปรไฟล์ได้", "error")
+    if (!propRestaurantId) {
+      const unsubscribe = onAuthStateChanged(auth, (user) => {
+        if (user) {
+          setUserId(user.uid)
+          setupRealTimeMenuListener(user.uid)
+        }
+      })
+      return () => unsubscribe()
+    } else {
+      setupRealTimeMenuListener(propRestaurantId)
     }
-  }
+  }, [propRestaurantId])
 
   // Setup real-time listener for menu items
   const setupRealTimeMenuListener = (uid: string) => {
@@ -119,7 +102,6 @@ export default function MenuManagement() {
         orderBy(sortBy, sortOrder === "asc" ? "asc" : "desc"),
       )
 
-      // Set up real-time listener
       const unsubscribe = onSnapshot(
         menuQuery,
         (querySnapshot) => {
@@ -135,6 +117,11 @@ export default function MenuManagement() {
           setMenuItems(items)
           setCategories(Array.from(categorySet))
           setLoading(false)
+
+          // Notify parent component of menu update
+          if (onMenuUpdate) {
+            onMenuUpdate(items)
+          }
         },
         (error) => {
           console.error("Error in menu real-time listener:", error)
@@ -152,21 +139,14 @@ export default function MenuManagement() {
     }
   }
 
-  // Update fetch function to use the real-time listener (for compatibility)
-  const fetchMenuItems = async (uid: string) => {
-    // This function is now just a placeholder for backward compatibility
-    // The real-time listener handles updates automatically
-    return
-  }
-
   // Handle image upload
   const handleImageUpload = async (file: File): Promise<string> => {
-    if (!userId || !file) return ""
+    if (!restaurantId || !file) return ""
 
     const storage = getStorage()
     const fileExtension = file.name.split(".").pop()
     const fileName = `menu_${Date.now()}.${fileExtension}`
-    const storageRef = ref(storage, `users/${userId}/menu/${fileName}`)
+    const storageRef = ref(storage, `users/${restaurantId}/menu/${fileName}`)
 
     await uploadBytes(storageRef, file)
     const downloadUrl = await getDownloadURL(storageRef)
@@ -198,7 +178,7 @@ export default function MenuManagement() {
 
   // Add new menu item
   const addMenuItem = async () => {
-    if (!userId) return
+    if (!restaurantId) return
     if (!formData.name || !formData.price) {
       showNotification("กรุณากรอกชื่อเมนูและราคา", "error")
       return
@@ -220,20 +200,17 @@ export default function MenuManagement() {
         category: formData.category,
         isAvailable: formData.isAvailable,
         isRecommended: formData.isRecommended,
+        recommendedTime: formData.recommendedTime,
         imageUrl: imageUrl,
         options: formData.options,
-        userId,
-        storeName: userProfile?.storeName || "",
-        restaurantName: userProfile?.restaurantName || "",
         createdAt: serverTimestamp(),
       }
 
-      await addDoc(collection(db, "users", userId, "menu"), menuData)
+      await addDoc(collection(db, "users", restaurantId, "menu"), menuData)
 
       resetForm()
       setIsModalOpen(false)
       showNotification("เพิ่มเมนูสำเร็จ", "success")
-      fetchMenuItems(userId)
     } catch (error) {
       console.error("Error adding menu item:", error)
       showNotification("ไม่สามารถเพิ่มเมนูได้", "error")
@@ -244,7 +221,7 @@ export default function MenuManagement() {
 
   // Update menu item
   const updateMenuItem = async () => {
-    if (!userId || !editingItem) return
+    if (!restaurantId || !editingItem) return
 
     try {
       setLoading(true)
@@ -274,17 +251,17 @@ export default function MenuManagement() {
         category: formData.category,
         isAvailable: formData.isAvailable,
         isRecommended: formData.isRecommended,
+        recommendedTime: formData.recommendedTime,
         imageUrl: imageUrl,
         options: formData.options,
         updatedAt: serverTimestamp(),
       }
 
-      await updateDoc(doc(db, "users", userId, "menu", editingItem.id), menuData)
+      await updateDoc(doc(db, "users", restaurantId, "menu", editingItem.id), menuData)
 
       resetForm()
       setIsModalOpen(false)
       showNotification("อัปเดตเมนูสำเร็จ", "success")
-      fetchMenuItems(userId)
     } catch (error) {
       console.error("Error updating menu item:", error)
       showNotification("ไม่สามารถอัปเดตเมนูได้", "error")
@@ -295,7 +272,7 @@ export default function MenuManagement() {
 
   // Delete menu item
   const deleteMenuItem = async (id: string) => {
-    if (!userId) return
+    if (!restaurantId) return
 
     if (!confirm("คุณต้องการลบเมนูนี้ใช่หรือไม่?")) return
 
@@ -303,8 +280,9 @@ export default function MenuManagement() {
       setLoading(true)
 
       // Get the menu item to delete
-      const menuItemRef = doc(db, "users", userId, "menu", id)
-      const menuItemSnap = await getDocs(query(collection(db, "users", userId, "menu"), where("__name__", "==", id)))
+      const menuItemSnap = await getDocs(
+        query(collection(db, "users", restaurantId, "menu"), where("__name__", "==", id)),
+      )
 
       if (!menuItemSnap.empty) {
         const menuItemData = menuItemSnap.docs[0].data() as MenuItem
@@ -321,10 +299,9 @@ export default function MenuManagement() {
         }
       }
 
-      await deleteDoc(doc(db, "users", userId, "menu", id))
+      await deleteDoc(doc(db, "users", restaurantId, "menu", id))
 
       showNotification("ลบเมนูสำเร็จ", "success")
-      fetchMenuItems(userId)
     } catch (error) {
       console.error("Error deleting menu item:", error)
       showNotification("ไม่สามารถลบเมนูได้", "error")
@@ -335,16 +312,15 @@ export default function MenuManagement() {
 
   // Toggle availability
   const toggleAvailability = async (id: string, currentStatus: boolean) => {
-    if (!userId) return
+    if (!restaurantId) return
 
     try {
-      await updateDoc(doc(db, "users", userId, "menu", id), {
+      await updateDoc(doc(db, "users", restaurantId, "menu", id), {
         isAvailable: !currentStatus,
         updatedAt: serverTimestamp(),
       })
 
       showNotification("อัปเดตสถานะสำเร็จ", "success")
-      fetchMenuItems(userId)
     } catch (error) {
       console.error("Error toggling availability:", error)
       showNotification("ไม่สามารถอัปเดตสถานะได้", "error")
@@ -353,16 +329,15 @@ export default function MenuManagement() {
 
   // Toggle recommended status
   const toggleRecommended = async (id: string, currentStatus: boolean) => {
-    if (!userId) return
+    if (!restaurantId) return
 
     try {
-      await updateDoc(doc(db, "users", userId, "menu", id), {
-        isRecommended: !currentStatus, // Fixed: was updating isAvailable instead of isRecommended
+      await updateDoc(doc(db, "users", restaurantId, "menu", id), {
+        isRecommended: !currentStatus,
         updatedAt: serverTimestamp(),
       })
 
       showNotification("อัปเดตสถานะสำเร็จ", "success")
-      fetchMenuItems(userId)
     } catch (error) {
       console.error("Error toggling recommended status:", error)
       showNotification("ไม่สามารถอัปเดตสถานะได้", "error")
@@ -378,6 +353,7 @@ export default function MenuManagement() {
       category: "",
       isAvailable: true,
       isRecommended: false,
+      recommendedTime: "all",
       imageUrl: "",
       imageFile: null,
       options: [],
@@ -395,6 +371,7 @@ export default function MenuManagement() {
       category: item.category || "",
       isAvailable: item.isAvailable,
       isRecommended: item.isRecommended,
+      recommendedTime: item.recommendedTime || "all",
       imageUrl: item.imageUrl || "",
       imageFile: null,
       options: item.options || [],
@@ -452,8 +429,6 @@ export default function MenuManagement() {
       setSortBy(field)
       setSortOrder("asc")
     }
-
-    if (userId) fetchMenuItems(userId)
   }
 
   const addOption = () => {
@@ -489,9 +464,7 @@ export default function MenuManagement() {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6">
         <div>
           <h1 className="text-2xl font-bold mb-1">จัดการเมนู</h1>
-          <p className="text-gray-600 text-sm">
-            {userProfile?.storeName ? `ร้าน ${userProfile.storeName}` : "เพิ่มเมนูของร้านคุณ"}
-          </p>
+          <p className="text-gray-600 text-sm">เพิ่มและจัดการเมนูของร้านคุณ</p>
         </div>
         <button
           onClick={openAddModal}
@@ -645,10 +618,11 @@ export default function MenuManagement() {
                     <td className="px-6 py-4 whitespace-nowrap">
                       <button
                         onClick={() => toggleRecommended(item.id, item.isRecommended)}
-                        className={`px-2 py-1 rounded-full text-xs font-medium ${
+                        className={`px-2 py-1 rounded-full text-xs font-medium flex items-center ${
                           item.isRecommended ? "bg-yellow-100 text-yellow-800" : "bg-gray-100 text-gray-800"
                         }`}
                       >
+                        {item.isRecommended && <Star className="h-3 w-3 mr-1" />}
                         {item.isRecommended ? "แนะนำ" : "ไม่แนะนำ"}
                       </button>
                     </td>
@@ -817,6 +791,22 @@ export default function MenuManagement() {
                               แนะนำ
                             </label>
                           </div>
+                          {formData.isRecommended && (
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-1">ช่วงเวลาที่แนะนำ</label>
+                              <select
+                                name="recommendedTime"
+                                value={formData.recommendedTime}
+                                onChange={handleInputChange}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              >
+                                <option value="all">ตลอดวัน</option>
+                                <option value="morning">เช้า (06:00-11:59)</option>
+                                <option value="afternoon">กลางวัน (12:00-17:59)</option>
+                                <option value="evening">เย็น (18:00-23:59)</option>
+                              </select>
+                            </div>
+                          )}
                         </div>
                       </div>
                     </div>

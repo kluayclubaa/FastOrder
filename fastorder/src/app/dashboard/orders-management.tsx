@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { FileText, Check, X, TrendingUp, Filter, Search, RefreshCw, Edit, Plus, Minus } from "lucide-react"
+import { FileText, Check, X, TrendingUp, Filter, Search, RefreshCw, Edit, Plus, Minus, User, Gift } from 'lucide-react'
 import { auth, db } from "@/lib/firebase"
 import {
   collection,
@@ -14,9 +14,44 @@ import {
   serverTimestamp,
   getDocs,
   writeBatch,
+  addDoc,
 } from "firebase/firestore"
 import { onAuthStateChanged } from "firebase/auth"
 import { useRouter } from "next/navigation"
+import { addPoints, updateMemberTier, calculatePointsFromAmount } from "@/lib/membership"
+
+// Add notification permission request function
+const requestNotificationPermission = async () => {
+  if ("Notification" in window) {
+    const permission = await Notification.requestPermission()
+    return permission === "granted"
+  }
+  return false
+}
+
+// Add function to show browser notification
+const showBrowserNotification = (
+  title: string,
+  body: string,
+  icon?: string
+) => {
+  if ("Notification" in window && Notification.permission === "granted") {
+    const notification = new Notification(title, {
+      body,
+      icon: icon ?? "/favicon.ico",
+      badge: "/favicon.ico",
+      tag: "restaurant-order",
+      requireInteraction: true,
+    });
+
+    notification.onclick = () => {
+      window.focus();
+      notification.close();
+    };
+
+    setTimeout(() => notification.close(), 10_000);
+  }
+};
 
 type OrderItem = {
   id: string
@@ -36,10 +71,18 @@ type Order = {
   table: string
   status: string
   totalAmount: number
+  originalAmount?: number
   items: OrderItem[]
   createdAt: any
   updatedAt: any
   queueNumber?: number
+  paymentMethod?: string
+  receiptUrl?: string
+  memberId?: string
+  memberPhone?: string
+  pointsEarned?: number
+  memberTotalSpent?: number
+  appliedPromotion?: any
 }
 
 export default function OrdersManagement() {
@@ -52,6 +95,12 @@ export default function OrdersManagement() {
   const router = useRouter()
   const [editingOrder, setEditingOrder] = useState<Order | null>(null)
   const [editedItems, setEditedItems] = useState<OrderItem[]>([])
+  const [showReceiptModal, setShowReceiptModal] = useState<{ order: Order | null; show: boolean }>({
+    order: null,
+    show: false,
+  })
+  const [lastOrderCount, setLastOrderCount] = useState(0)
+  const [notificationPermission, setNotificationPermission] = useState(false)
 
   // Check authentication state
   useEffect(() => {
@@ -106,6 +155,28 @@ export default function OrdersManagement() {
             ordersList.push({ id: doc.id, ...data })
           })
           setOrders(ordersList)
+          // Check for new orders and show notifications
+          if (ordersList.length > lastOrderCount && lastOrderCount > 0) {
+            const newOrders = ordersList.slice(0, ordersList.length - lastOrderCount)
+            newOrders.forEach((order) => {
+              if (order.status === "pending") {
+                showBrowserNotification(
+                  "🔔 ออเดอร์ใหม่!",
+                  `โต๊ะ ${order.table} - ${order.items?.length || 0} รายการ (฿${order.totalAmount?.toFixed(2) || "0"})`,
+                )
+
+                // Also play notification sound if available
+                if ("Audio" in window) {
+                  try {
+                    const audio = new Audio("/notification.mp3")
+                    audio.volume = 0.5
+                    audio.play().catch(() => {}) // Ignore errors if audio fails
+                  } catch (e) {}
+                }
+              }
+            })
+          }
+          setLastOrderCount(ordersList.length)
           setLoading(false)
         },
         (error) => {
@@ -152,6 +223,51 @@ export default function OrdersManagement() {
     }
   }
 
+  const saveReceiptToCollection = async (order: Order) => {
+    if (!userId || !order.receiptUrl) return
+
+    try {
+      const expiresAt = new Date()
+      expiresAt.setDate(expiresAt.getDate() + 7) // หมดอายุใน 7 วัน
+
+      await addDoc(collection(db, "users", userId, "receipts"), {
+        orderId: order.id,
+        table: order.table,
+        amount: order.totalAmount,
+        receiptUrl: order.receiptUrl,
+        uploadedAt: serverTimestamp(),
+        expiresAt: expiresAt,
+        paymentMethod: order.paymentMethod,
+      })
+    } catch (error) {
+      console.error("Error saving receipt:", error)
+    }
+  }
+
+  // ฟังก์ชันสำหรับเพิ่มแต้มเมื่อออเดอร์เสร็จสิ้น
+  const processPointsForCompletedOrder = async (order: Order) => {
+    if (!order.memberId || !order.pointsEarned) return
+
+    try {
+      // เพิ่มแต้มให้สมาชิก
+      await addPoints(
+        userId!,
+        order.memberId,
+        order.pointsEarned,
+        order.id,
+        `ได้รับแต้มจากออเดอร์ #${order.id.slice(-6).toUpperCase()}`,
+      )
+
+      // อัพเดท tier ของสมาชิก
+      const newTotalSpent = (order.memberTotalSpent || 0) + order.totalAmount
+      await updateMemberTier(userId!, order.memberId, newTotalSpent)
+
+      console.log(`Added ${order.pointsEarned} points to member ${order.memberId}`)
+    } catch (error) {
+      console.error("Error processing points:", error)
+    }
+  }
+
   // Update order status
   const updateOrderStatus = async (orderId: string, newStatus: string) => {
     if (!userId) return
@@ -178,6 +294,20 @@ export default function OrdersManagement() {
         const queueNumber = cookingSnapshot.size + 1
 
         updateData.queueNumber = queueNumber
+
+        // Save receipt to collection if it's a scan payment
+        const currentOrder = orders.find((order) => order.id === orderId)
+        if (currentOrder && currentOrder.paymentMethod === "scan" && currentOrder.receiptUrl) {
+          await saveReceiptToCollection(currentOrder)
+        }
+      }
+
+      // If order is completed, process member points
+      if (newStatus === "completed") {
+        const currentOrder = orders.find((order) => order.id === orderId)
+        if (currentOrder) {
+          await processPointsForCompletedOrder(currentOrder)
+        }
       }
 
       await updateDoc(orderRef, updateData)
@@ -211,7 +341,8 @@ export default function OrdersManagement() {
     return orders.filter(
       (order) =>
         order.table.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        order.id.toLowerCase().includes(searchTerm.toLowerCase()),
+        order.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        order.memberPhone?.includes(searchTerm)
     )
   }
 
@@ -268,11 +399,23 @@ export default function OrdersManagement() {
         return total + itemBasePrice + optionsPrice
       }, 0)
 
+      // Recalculate points if member order
+      let newPointsEarned = 0
+      if (editingOrder.memberId) {
+        newPointsEarned = calculatePointsFromAmount(newTotalAmount)
+        
+        // Apply promotion multiplier if exists
+        if (editingOrder.appliedPromotion && editingOrder.appliedPromotion.type === "points_multiplier") {
+          newPointsEarned = newPointsEarned * editingOrder.appliedPromotion.value
+        }
+      }
+
       const orderRef = doc(db, "users", userId, "orders", editingOrder.id)
 
       await updateDoc(orderRef, {
         items: editedItems,
         totalAmount: newTotalAmount,
+        pointsEarned: newPointsEarned,
         updatedAt: serverTimestamp(),
       })
 
@@ -370,6 +513,15 @@ export default function OrdersManagement() {
 
   const filteredOrders = getFilteredOrders()
 
+  // Request notification permission on mount
+  useEffect(() => {
+    const initNotifications = async () => {
+      const granted = await requestNotificationPermission()
+      setNotificationPermission(granted)
+    }
+    initNotifications()
+  }, [])
+
   return (
     <div className="space-y-6">
       <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-gray-100">
@@ -381,7 +533,7 @@ export default function OrdersManagement() {
               <Search className="h-4 w-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
               <input
                 type="text"
-                placeholder="ค้นหาโต๊ะ"
+                placeholder="ค้นหาโต๊ะ, ออเดอร์, เบอร์โทร"
                 className="pl-9 pr-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 w-full md:w-48"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
@@ -413,6 +565,31 @@ export default function OrdersManagement() {
               <RefreshCw className="h-4 w-4 mr-2" />
               รีเฟรช
             </button>
+          </div>
+        </div>
+
+        {/* Notification Settings */}
+        <div className="mb-4 p-3 bg-yellow-50 rounded-lg border border-yellow-200">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="font-medium text-yellow-800">การแจ้งเตือน</h3>
+              <p className="text-sm text-yellow-700">
+                {notificationPermission
+                  ? "✅ เปิดการแจ้งเตือนแล้ว - คุณจะได้รับแจ้งเตือนเมื่อมีออเดอร์ใหม่"
+                  : "❌ ยังไม่ได้เปิดการแจ้งเตือน"}
+              </p>
+            </div>
+            {!notificationPermission && (
+              <button
+                onClick={async () => {
+                  const granted = await requestNotificationPermission()
+                  setNotificationPermission(granted)
+                }}
+                className="px-3 py-1 bg-yellow-600 text-white text-sm rounded-md hover:bg-yellow-700"
+              >
+                เปิดการแจ้งเตือน
+              </button>
+            )}
           </div>
         </div>
 
@@ -464,6 +641,18 @@ export default function OrdersManagement() {
                     scope="col"
                     className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
                   >
+                    การชำระเงิน
+                  </th>
+                  <th
+                    scope="col"
+                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                  >
+                    สมาชิก
+                  </th>
+                  <th
+                    scope="col"
+                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                  >
                     การดำเนินการ
                   </th>
                 </tr>
@@ -496,6 +685,16 @@ export default function OrdersManagement() {
                       >
                         ฿{order.totalAmount?.toFixed(2) || "0"}
                       </div>
+                      {order.originalAmount && order.originalAmount !== order.totalAmount && (
+                        <div className="text-xs text-gray-500 line-through">
+                          ฿{order.originalAmount.toFixed(2)}
+                        </div>
+                      )}
+                      {order.appliedPromotion && (
+                        <div className="text-xs text-purple-600">
+                          {order.appliedPromotion.title}
+                        </div>
+                      )}
                       {order.status === "cancelled" && <div className="text-xs text-red-500 mt-1">ไม่นับเป็นรายได้</div>}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
@@ -510,6 +709,55 @@ export default function OrdersManagement() {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       {renderStatusBadge(order.status, order.queueNumber)}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm text-gray-900">
+                        {order.paymentMethod === "scan" ? (
+                          <div className="flex items-center">
+                            <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded-full text-xs mr-2">
+                              สแกนจ่าย
+                            </span>
+                            {order.receiptUrl && (
+                              <button
+                                onClick={() => setShowReceiptModal({ order, show: true })}
+                                className="text-blue-600 hover:text-blue-800 text-xs underline"
+                              >
+                                ดูใบเสร็จ
+                              </button>
+                            )}
+                            {!order.receiptUrl && <span className="text-gray-500 text-xs">ไม่มีใบเสร็จ</span>}
+                          </div>
+                        ) : order.paymentMethod === "counter" ? (
+                          <span className="bg-green-100 text-green-800 px-2 py-1 rounded-full text-xs">จ่ายเคาเตอร์</span>
+                        ) : (
+                          <span className="bg-gray-100 text-gray-800 px-2 py-1 rounded-full text-xs">ไม่ระบุ</span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      {order.memberId ? (
+                        <div className="text-sm">
+                          <div className="flex items-center">
+                            <User className="h-4 w-4 text-green-600 mr-1" />
+                            <span className="font-medium text-green-600">สมาชิก</span>
+                          </div>
+                          <div className="text-xs text-gray-500">{order.memberPhone || "ไม่ระบุ"}</div>
+                          {order.pointsEarned && order.status === "completed" && (
+                            <div className="text-xs text-blue-600 flex items-center">
+                              <Gift className="h-3 w-3 mr-1" />
+                              +{order.pointsEarned} แต้ม
+                            </div>
+                          )}
+                          {order.pointsEarned && order.status !== "completed" && (
+                            <div className="text-xs text-gray-500 flex items-center">
+                              <Gift className="h-3 w-3 mr-1" />
+                              จะได้ {order.pointsEarned} แต้ม
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="text-sm text-gray-500">ไม่เป็นสมาชิก</div>
+                      )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">{renderActionButtons(order)}</td>
                   </tr>
@@ -537,7 +785,12 @@ export default function OrdersManagement() {
               <div className="mb-4">
                 <div className="flex justify-between items-center mb-2">
                   <h3 className="font-medium">รายการอาหาร</h3>
-                  <div className="text-sm text-gray-500">โต๊ะ {editingOrder.table}</div>
+                  <div className="text-sm text-gray-500">
+                    โต๊ะ {editingOrder.table}
+                    {editingOrder.memberId && (
+                      <span className="ml-2 text-green-600">• สมาชิก</span>
+                    )}
+                  </div>
                 </div>
 
                 <div className="space-y-3">
@@ -622,6 +875,27 @@ export default function OrdersManagement() {
                 </div>
               </div>
 
+              {/* Member Points Info */}
+              {editingOrder.memberId && (
+                <div className="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center">
+                      <Gift className="h-4 w-4 text-blue-600 mr-2" />
+                      <span className="text-sm font-medium text-blue-800">แต้มที่จะได้รับ</span>
+                    </div>
+                    <div className="text-sm font-bold text-blue-800">
+                      {calculatePointsFromAmount(editedItems.reduce((total, item) => {
+                        const itemBasePrice = item.price * item.quantity
+                        const optionsPrice = item.selectedOptions
+                          ? item.selectedOptions.reduce((sum, option) => sum + option.price, 0) * item.quantity
+                          : 0
+                        return total + itemBasePrice + optionsPrice
+                      }, 0))} แต้ม
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div className="flex justify-end space-x-3">
                 <button
                   onClick={() => setEditingOrder(null)}
@@ -643,6 +917,50 @@ export default function OrdersManagement() {
                     "บันทึกการเปลี่ยนแปลง"
                   )}
                 </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Receipt Modal */}
+      {showReceiptModal.show && showReceiptModal.order && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg max-w-md w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-4 border-b border-gray-200 flex items-center justify-between">
+              <h3 className="text-lg font-bold">หลักฐานการโอนเงิน</h3>
+              <button
+                onClick={() => setShowReceiptModal({ order: null, show: false })}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="p-4">
+              <div className="mb-4">
+                <p>
+                  <strong>ออเดอร์:</strong> #{showReceiptModal.order.id.slice(-6).toUpperCase()}
+                </p>
+                <p>
+                  <strong>โต๊ะ:</strong> {showReceiptModal.order.table}
+                </p>
+                <p>
+                  <strong>จำนวนเงิน:</strong> ฿{showReceiptModal.order.totalAmount.toFixed(2)}
+                </p>
+                {showReceiptModal.order.memberId && (
+                  <p>
+                    <strong>สมาชิก:</strong> {showReceiptModal.order.memberPhone}
+                  </p>
+                )}
+              </div>
+
+              <div className="text-center">
+                <img
+                  src={showReceiptModal.order.receiptUrl || "/placeholder.svg"}
+                  alt="Receipt"
+                  className="max-w-full h-auto border border-gray-200 rounded-lg"
+                />
               </div>
             </div>
           </div>
